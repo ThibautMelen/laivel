@@ -1,0 +1,6 @@
+.nika/
+.env
+.env.*
+out/
+.DS_Store
+*.log

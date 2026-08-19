@@ -1,0 +1,287 @@
+# yaml-language-server: $schema=https://nika.sh/spec/v1/workflow.schema.json
+#
+# laivel · assess an AIDD level from a developer profile
+#
+# The model extracts typed signals. jq applies the official law
+# (all axes or nothing). The model then writes how to climb one level.
+# It cannot change the level.
+#
+# Run ·
+#   nika run laivel.nika.yaml
+#   nika run laivel.nika.yaml --input profile=./fixtures/red.md
+#   nika run laivel.nika.yaml --model mock/echo   # zero-key rehearsal
+
+nika: laivel-assess
+
+model: ollama/qwen3.5:4b
+
+inputs:
+  profile:
+    type: string
+    default: "./fixtures/green.md"
+    description: "Path to a developer profile (markdown)"
+
+permits:
+  tools: ["nika:read", "nika:jq", "nika:write"]
+  fs:
+    read:
+      - "./fixtures"
+      - "./fixtures/*"
+      - "./levels"
+      - "./levels/*"
+    write:
+      - "./out"
+      - "./out/*"
+
+tasks:
+  profile:
+    invoke:
+      tool: "nika:read"
+      args:
+        path: "${{ inputs.profile }}"
+    on_error:
+      recover: null
+
+  fallback:
+    with:
+      text: ${{ tasks.profile.output }}
+    when: ${{ with.text == null }}
+    invoke:
+      tool: "nika:jq"
+      args:
+        input: {}
+        expression: >-
+          {
+            taille: "unknown",
+            harness: "unknown",
+            intervention: "unknown",
+            parallele: "unknown",
+            autonomy: "unknown",
+            throughput: "unknown",
+            missing: ["all"],
+            evidence: {
+              taille: [],
+              harness: [],
+              intervention: [],
+              parallele: []
+            }
+          }
+
+  signals:
+    with:
+      text: ${{ tasks.profile.output }}
+    when: ${{ with.text != null }}
+    infer:
+      max_tokens: 2000
+      prompt: |
+        Extract AIDD signals from this developer profile. Do NOT assign a level.
+
+        Axes (pick exactly one value each, or unknown):
+        - taille: none | S | M | L | XL
+        - harness: none | prompts | context | context_behavior | context_behavior_loops
+        - intervention: none | after_majority | after_part | key_steps | never
+        - parallele: 0 | 1 | 3
+        - autonomy: no | human_starts | agents_pick
+        - throughput: none | one | multi_pr_day
+
+        Quote evidence. If an axis is not evidenced, mark it unknown and list it in missing.
+
+        Profile ·
+        ${{ with.text }}
+      schema:
+        type: object
+        additionalProperties: false
+        required:
+          - taille
+          - harness
+          - intervention
+          - parallele
+          - autonomy
+          - throughput
+          - missing
+          - evidence
+        properties:
+          taille:
+            type: string
+            enum: [unknown, none, S, M, L, XL]
+          harness:
+            type: string
+            enum: [unknown, none, prompts, context, context_behavior, context_behavior_loops]
+          intervention:
+            type: string
+            enum: [unknown, none, after_majority, after_part, key_steps, never]
+          parallele:
+            type: string
+            enum: [unknown, "0", "1", "3"]
+          autonomy:
+            type: string
+            enum: [unknown, no, human_starts, agents_pick]
+          throughput:
+            type: string
+            enum: [unknown, none, one, multi_pr_day]
+          missing:
+            type: array
+            items: { type: string }
+          evidence:
+            type: object
+            additionalProperties: false
+            required: [taille, harness, intervention, parallele]
+            properties:
+              taille: { type: array, items: { type: string } }
+              harness: { type: array, items: { type: string } }
+              intervention: { type: array, items: { type: string } }
+              parallele: { type: array, items: { type: string } }
+
+  scored:
+    with:
+      extracted: ${{ tasks.signals.output }}
+      empty: ${{ tasks.fallback.output }}
+    invoke:
+      tool: "nika:jq"
+      args:
+        input: ["${{ with.extracted }}", "${{ with.empty }}"]
+        expression: >-
+          (.[0] // .[1] // {
+            taille: "unknown", harness: "unknown", intervention: "unknown",
+            parallele: "unknown", autonomy: "unknown", throughput: "unknown",
+            missing: ["all"], evidence: {}
+          }) as $s
+          | {
+              none: 0, S: 1, M: 2, L: 3, XL: 3
+            } as $t
+          | {
+              none: 0, prompts: 1, context: 2,
+              context_behavior: 3, context_behavior_loops: 4
+            } as $h
+          | {
+              none: 0, after_majority: 1, after_part: 2,
+              key_steps: 3, never: 4
+            } as $i
+          | { "0": 0, "1": 1, "3": 2 } as $p
+          | ($t[$s.taille]) as $rt
+          | ($h[$s.harness]) as $rh
+          | ($i[$s.intervention]) as $ri
+          | ($p[$s.parallele]) as $rp
+          | (
+              if ($rt != null and $rt >= 3 and $rh != null and $rh >= 4
+                  and $ri != null and $ri >= 4 and $rp != null and $rp >= 2
+                  and $s.autonomy == "agents_pick"
+                  and $s.throughput == "multi_pr_day")
+              then "gold"
+              elif ($rt != null and $rt >= 3 and $rh != null and $rh >= 4
+                    and $ri != null and $ri >= 4 and $rp != null and $rp >= 2)
+              then "silver"
+              elif ($rt != null and $rt >= 3 and $rh != null and $rh >= 3
+                    and $ri != null and $ri >= 3 and $rp != null and $rp >= 2)
+              then "copper"
+              elif ($rt != null and $rt >= 3 and $rh != null and $rh >= 3
+                    and $ri != null and $ri >= 3 and $rp != null and $rp >= 1)
+              then "green"
+              elif ($rt != null and $rt >= 2 and $rh != null and $rh >= 2
+                    and $ri != null and $ri >= 2 and $rp != null and $rp >= 1)
+              then "blue"
+              elif ($rt != null and $rt >= 1 and $rh != null and $rh >= 1
+                    and $ri != null and $ri >= 1 and $rp != null and $rp >= 1)
+              then "red"
+              else "white"
+              end
+            ) as $level
+          | (
+              [$s.taille, $s.harness, $s.intervention, $s.parallele]
+              | map(select(. == null or . == "unknown"))
+              | length
+            ) as $unk
+          | {
+              level: $level,
+              next: {
+                white: "red", red: "blue", blue: "green",
+                green: "copper", copper: "silver", silver: "gold", gold: null
+              }[$level],
+              blocking_axis: (
+                if $level == "gold" then null
+                elif $level == "silver" then
+                  (if $s.autonomy != "agents_pick" then "autonomy" else "throughput" end)
+                elif $level == "copper" then
+                  (if ($rh == null or $rh < 4) then "harness" else "intervention" end)
+                elif $level == "green" then "parallele"
+                elif $level == "blue" then
+                  (if ($rt == null or $rt < 3) then "taille"
+                   elif ($rh == null or $rh < 3) then "harness"
+                   else "intervention" end)
+                elif $level == "red" then
+                  (if ($rt == null or $rt < 2) then "taille"
+                   elif ($rh == null or $rh < 2) then "harness"
+                   else "intervention" end)
+                elif ($rt == null or $rt < 1) then "taille"
+                elif ($rh == null or $rh < 1) then "harness"
+                elif ($ri == null or $ri < 1) then "intervention"
+                elif ($rp == null or $rp < 1) then "parallele"
+                else "all"
+                end
+              ),
+              confidence: (if $unk >= 2 then "low" elif $unk == 1 then "medium" else "high" end),
+              signals: $s
+            }
+
+  explain:
+    with:
+      scored: ${{ tasks.scored.output }}
+    infer:
+      max_tokens: 1200
+      prompt: |
+        You explain an AIDD verdict. You MUST keep the level exactly as given.
+        Do not upgrade or downgrade it.
+
+        Verdict ·
+        ${{ with.scored }}
+
+        Write:
+        1. One sentence naming the level and the blocking axis
+        2. Why, citing the evidence quotes
+        3. The single next move to reach `next` (or "already Gold")
+      schema:
+        type: object
+        additionalProperties: false
+        required: [level, why, next_move]
+        properties:
+          level: { type: string }
+          why: { type: string }
+          next_move: { type: string }
+
+  save:
+    with:
+      scored: ${{ tasks.scored.output }}
+      story: ${{ tasks.explain.output }}
+    invoke:
+      tool: "nika:jq"
+      args:
+        input: ["${{ with.scored }}", "${{ with.story }}"]
+        expression: >-
+          .[0] as $s | .[1] as $t
+          | (
+              "# " + ($s.level | ascii_upcase)
+              + " · confidence " + $s.confidence + "\n\n"
+              + ($t.why // "") + "\n\n"
+              + "## Next\n\n" + ($t.next_move // "") + "\n"
+            )
+
+  write:
+    with:
+      body: ${{ tasks.save.output }}
+    invoke:
+      tool: "nika:write"
+      args:
+        path: "./out/verdict.md"
+        content: "${{ with.body }}"
+        create_dirs: true
+
+outputs:
+  level:
+    value: ${{ tasks.scored.output.level }}
+    description: "Bottleneck level · jq, not the model"
+  confidence:
+    value: ${{ tasks.scored.output.confidence }}
+  blocking_axis:
+    value: ${{ tasks.scored.output.blocking_axis }}
+  story:
+    value: ${{ tasks.explain.output }}

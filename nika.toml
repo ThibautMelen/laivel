@@ -1,0 +1,6 @@
+[project]
+name = "laivel"
+
+[provider]
+default = "ollama"
+model = "qwen3.5:4b"
