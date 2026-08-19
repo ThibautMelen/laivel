@@ -1,6 +1,0 @@
-[project]
-name = "laivel"
-
-[provider]
-default = "openai"
-model = "gpt-5-mini"
