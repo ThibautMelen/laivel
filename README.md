@@ -10,6 +10,12 @@ Built for [LAIVEL UP](https://github.com/ai-driven-dev/laivel-up) · 28-31 Augus
 
 [METHOD.md](./METHOD.md) · [VIDEO.md](./VIDEO.md) · grid [levels/aidd.md](./levels/aidd.md)
 
+## Pitch (3 lines · form `rendu.yml`)
+
+On mesure les 4 axes AIDD (taille · harness · intervention · parallèle),
+pas une moyenne. jq pose le cran: tous les axes ou rien; le modèle n'écrit
+jamais la ceinture. Incomplet ou contradictoire → White + `nika:decide` defer.
+
 ## Run it
 
 **Clone standalone.** If another `nika.yaml` sits above this folder
