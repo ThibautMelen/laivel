@@ -78,6 +78,10 @@ des actions decide + effectifs par ceinture, `nika:emit`
 | amina | Gold |
 | inconnu | White · rumor |
 | paradox | White · recit vs repo |
+| lou | White · rumor 3 lignes |
+| theo | White · recit vs depot |
+| chloe | White · boucle CI vs cadrage |
+| felix | White · ChatGPT sans fichier |
 
 ## Pourquoi pas 0-100
 
