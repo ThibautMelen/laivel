@@ -1,44 +1,46 @@
-# Méthode
+# Methode
 
-La grille officielle dit: **un niveau n'est atteint que si tous ses axes le sont**.
+La grille officielle: **un niveau n'est atteint que si tous ses axes le sont**.
 
-Laivel n'en fait pas une moyenne. Trois étapes, dans cet ordre.
+Laivel est un seul workflow Nika. Pas de script, pas d'autre runtime.
 
-## 1. Extraire, ne pas juger
+## 1. Extraire
 
-Un modèle lit le profil et sort uniquement des signaux typés:
+OpenAI (`openai/gpt-5-mini`) lit chaque profil et sort des signaux types,
+avec citations. Il n'ecrit pas de niveau. Schema ferme, retry sur les
+erreurs transitoires. Un fichier illisible devient `unknown` (`recover: null`).
 
-- `taille` · none / S / M / L / XL
-- `harness` · none / prompts / context / context+behavior / +loops
-- `intervention` · after majority / after part / key steps / never
-- `parallele` · 0 / 1 / 3
-- `autonomy` + `throughput` · uniquement pour départager Silver et Gold
+## 2. La loi (jq)
 
-Chaque signal porte une citation. S'il n'y a pas de preuve, le signal est `unknown`.
+Le plus haut palier dont tous les minima sont tenus. `unknown` ne
+satisfait aucun minimum. Une contradiction (XL sans harness, never +
+prompts, 3 chantiers en taille S, agents sans boucles) baisse la
+confiance et plafonne.
 
-Le modèle n'écrit pas de niveau.
+Silver et Gold partagent les 4 axes. Gold exige en plus `agents_pick`
+et `multi_pr_day`.
 
-## 2. Appliquer la loi
+## 3. Publier ou s'abstenir (`nika:decide`)
 
-`jq` (pas le modèle) calcule le plus haut palier dont **tous** les minima sont tenus.
+Le bundle `decisions/aidd-publish.bundle.json` recoit le nombre
+d'unknowns et le flag contradiction.
 
-`unknown` ne satisfait aucun minimum. Un profil troué ne devient jamais Gold
-par interpolation.
+- `recommend` · assez de preuves pour afficher le niveau
+- `defer` · trop de trous · le niveau reste un plafond, pas une note
+- `human_required` · deux sources font autorite et se contredisent
 
-Silver et Gold partagent les quatre axes. Gold exige en plus que les agents
-prennent les tâches et que plusieurs PR partent le même jour, sans commit humain.
+C'est le critere « assume quand il n'est pas sur », en contrat.
 
-## 3. Raconter le cran suivant
+## 4. Raconter
 
-Le modèle revoit les preuves et l'axe qui **bloque** le palier au-dessus.
-Il écrit comment monter. Il n'a pas le droit de changer le niveau.
+Le modele recit le geste que jq a deja choisi. Il ne peut pas changer
+le niveau (le champ n'est plus dans son schema).
 
-## Incomplet
+## 5. Equipe
 
-Un profil vide ou illisible sort `white` / `low` / `blocking_axis: all`.
-Le process ne plante pas. L'incertitude est le verdict.
+Un verdict par profil, un `out/team.md`, un `out/team.svg`.
 
-## Pourquoi pas un score 0–100
+## Pourquoi pas 0-100
 
 La grille n'est pas une moyenne. Un harness Gold avec des PR taille S
-est Red. Cacher ça derrière 73/100 ment au lead tech.
+est Red. 73/100 ment au lead tech.

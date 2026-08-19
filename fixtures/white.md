@@ -1,5 +1,10 @@
 # Profil · Camille
 
-Camille code seule, sans assistant. Ses commits sont tous signés de sa main.
-Aucun fichier `AGENTS.md`, `.cursorrules`, `CLAUDE.md` ou mémoire de projet
-dans le dépôt. Pas de PR ouverte cette semaine. Une seule branche, `main`.
+Camille code seule, sans assistant. Aucun commit signe par une IA.
+
+- taille: none (aucune feature livree avec l'IA)
+- harness: none (aucun AGENTS.md, aucune rule, aucune memoire projet)
+- intervention: none
+- parallele: 0 (une branche, main)
+- autonomy: no
+- throughput: none

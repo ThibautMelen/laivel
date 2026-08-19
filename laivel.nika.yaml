@@ -1,82 +1,136 @@
 # yaml-language-server: $schema=https://nika.sh/spec/v1/workflow.schema.json
 #
-# laivel · assess an AIDD level from a developer profile
+# laivel · AIDD level judge · Nika only
 #
-# The model extracts typed signals. jq applies the official law
-# (all axes or nothing). The model then writes how to climb one level.
-# It cannot change the level.
+# infer extracts cited facts (OpenAI). jq applies the official law
+# (all axes or nothing). nika:decide says whether the verdict is
+# publishable (recommend) or must stay uncertain (defer / human_required).
+# infer then narrates the next step. It cannot change the level.
+# nika:chart draws the team. Zero helper scripts.
 #
 # Run ·
 #   nika run laivel.nika.yaml
-#   nika run laivel.nika.yaml --input profile=./fixtures/red.md
+#   nika run laivel.nika.yaml --var profiles=./profiles/*.md --max-cost-usd 3
+#   nika run laivel.nika.yaml --var self_test=true --max-cost-usd 3
 #   nika run laivel.nika.yaml --model mock/echo   # zero-key rehearsal
 
 nika: laivel-assess
 
-model: ollama/qwen3.5:4b
+model: openai/gpt-5-mini
 
 inputs:
-  profile:
+  profiles:
     type: string
-    default: "./fixtures/green.md"
-    description: "Path to a developer profile (markdown)"
+    required: false
+    default: "./fixtures/*.md"
+    description: "Glob of developer profile markdown files"
+  model:
+    type: string
+    required: false
+    default: "openai/gpt-5-mini"
+    description: "provider/name · openai/gpt-5-mini or openai/gpt-5.2"
+  self_test:
+    type: bool
+    required: false
+    default: false
+    description: "When true, assert scored levels against fixtures/expected.json"
+
+const:
+  bundle: "./decisions/aidd-publish.bundle.json"
+  expected: "./fixtures/expected.json"
+  observed_at: "2026-08-19T12:00:00Z"
 
 permits:
-  tools: ["nika:read", "nika:jq", "nika:write"]
+  exec: false
+  tools:
+    - "nika:glob"
+    - "nika:read"
+    - "nika:jq"
+    - "nika:write"
+    - "nika:decide"
+    - "nika:assert"
+    - "nika:chart"
+    - "nika:log"
   fs:
     read:
-      - "./fixtures"
-      - "./fixtures/*"
-      - "./levels"
-      - "./levels/*"
+      - "./fixtures/**"
+      - "./profiles/**"
+      - "./levels/**"
+      - "./decisions/**"
     write:
-      - "./out"
-      - "./out/*"
+      - "./out/**"
 
 tasks:
-  profile:
+  hello:
+    invoke:
+      tool: "nika:log"
+      args:
+        level: info
+        message: "laivel · extract facts · jq applies the law · decide publishes or abstains"
+
+  files:
+    invoke:
+      tool: "nika:glob"
+      args:
+        pattern: "${{ inputs.profiles }}"
+    lift:
+      - law: taint
+        from: inputs.profiles
+        because: "operator glob, still gated by the literal permits.fs.read tree"
+
+  texts:
+    with:
+      paths: ${{ tasks.files.output }}
+    for_each:
+      items: ${{ with.paths }}
+      max_parallel: 8
+      fail_fast: false
+    on_error:
+      recover: null
     invoke:
       tool: "nika:read"
       args:
-        path: "${{ inputs.profile }}"
-    on_error:
-      recover: null
+        path: "${{ item }}"
 
-  fallback:
+  pairs:
     with:
-      text: ${{ tasks.profile.output }}
-    when: ${{ with.text == null }}
+      paths: ${{ tasks.files.output }}
+      texts: ${{ tasks.texts.output }}
     invoke:
       tool: "nika:jq"
       args:
-        input: {}
+        input: ["${{ with.paths }}", "${{ with.texts }}"]
         expression: >-
-          {
-            taille: "unknown",
-            harness: "unknown",
-            intervention: "unknown",
-            parallele: "unknown",
-            autonomy: "unknown",
-            throughput: "unknown",
-            missing: ["all"],
-            evidence: {
-              taille: [],
-              harness: [],
-              intervention: [],
-              parallele: []
-            }
-          }
+          transpose
+          | map(select(.[1] != null))
+          | map({
+              path: .[0],
+              text: .[1],
+              stem: (.[0] | split("/") | last | rtrimstr(".md"))
+            })
 
   signals:
     with:
-      text: ${{ tasks.profile.output }}
-    when: ${{ with.text != null }}
+      pairs: ${{ tasks.pairs.output }}
+      model: ${{ inputs.model }}
+    for_each:
+      items: ${{ with.pairs }}
+      max_parallel: 4
+      fail_fast: false
+    on_error:
+      recover: null
+    retry:
+      max_attempts: 3
+      backoff_strategy: exponential
+      jitter: true
     infer:
-      max_tokens: 2000
+      model: "${{ inputs.model }}"
+      max_tokens: 8000
       prompt: |
-        Extract AIDD signals from this developer profile. Do NOT assign a level.
+        Extraire des FAITS AIDD depuis ce profil. Ne PAS attribuer de niveau.
+        Si une ligne liste deja l'enum (`- taille: S`), copie-la telle quelle.
 
-        Axes (pick exactly one value each, or unknown):
+        Axes (une valeur, ou unknown):
         - taille: none | S | M | L | XL
         - harness: none | prompts | context | context_behavior | context_behavior_loops
         - intervention: none | after_majority | after_part | key_steps | never
@@ -84,10 +138,12 @@ tasks:
         - autonomy: no | human_starts | agents_pick
         - throughput: none | one | multi_pr_day
 
-        Quote evidence. If an axis is not evidenced, mark it unknown and list it in missing.
+        Cite une preuve courte par axe. Sans preuve: unknown, et liste l'axe dans missing.
+        N'invente rien. Un profil contradictoire: extraire les deux faits, ne pas resoudre.
 
-        Profile ·
-        ${{ with.text }}
+        Fichier · ${{ item.stem }}
+        Profil ·
+        ${{ item.text }}
       schema:
         type: object
         additionalProperties: false
@@ -134,154 +190,376 @@ tasks:
 
   scored:
     with:
+      pairs: ${{ tasks.pairs.output }}
       extracted: ${{ tasks.signals.output }}
-      empty: ${{ tasks.fallback.output }}
+      observed_at: ${{ const.observed_at }}
     invoke:
       tool: "nika:jq"
       args:
-        input: ["${{ with.extracted }}", "${{ with.empty }}"]
+        input: ["${{ with.pairs }}", "${{ with.extracted }}", "${{ with.observed_at }}"]
         expression: >-
-          (.[0] // .[1] // {
-            taille: "unknown", harness: "unknown", intervention: "unknown",
-            parallele: "unknown", autonomy: "unknown", throughput: "unknown",
-            missing: ["all"], evidence: {}
-          }) as $s
-          | {
-              none: 0, S: 1, M: 2, L: 3, XL: 3
-            } as $t
-          | {
-              none: 0, prompts: 1, context: 2,
-              context_behavior: 3, context_behavior_loops: 4
-            } as $h
-          | {
-              none: 0, after_majority: 1, after_part: 2,
-              key_steps: 3, never: 4
-            } as $i
-          | { "0": 0, "1": 1, "3": 2 } as $p
-          | ($t[$s.taille]) as $rt
-          | ($h[$s.harness]) as $rh
-          | ($i[$s.intervention]) as $ri
-          | ($p[$s.parallele]) as $rp
-          | (
-              if ($rt != null and $rt >= 3 and $rh != null and $rh >= 4
-                  and $ri != null and $ri >= 4 and $rp != null and $rp >= 2
-                  and $s.autonomy == "agents_pick"
-                  and $s.throughput == "multi_pr_day")
-              then "gold"
-              elif ($rt != null and $rt >= 3 and $rh != null and $rh >= 4
-                    and $ri != null and $ri >= 4 and $rp != null and $rp >= 2)
-              then "silver"
-              elif ($rt != null and $rt >= 3 and $rh != null and $rh >= 3
-                    and $ri != null and $ri >= 3 and $rp != null and $rp >= 2)
-              then "copper"
-              elif ($rt != null and $rt >= 3 and $rh != null and $rh >= 3
-                    and $ri != null and $ri >= 3 and $rp != null and $rp >= 1)
-              then "green"
-              elif ($rt != null and $rt >= 2 and $rh != null and $rh >= 2
-                    and $ri != null and $ri >= 2 and $rp != null and $rp >= 1)
-              then "blue"
-              elif ($rt != null and $rt >= 1 and $rh != null and $rh >= 1
-                    and $ri != null and $ri >= 1 and $rp != null and $rp >= 1)
-              then "red"
-              else "white"
-              end
-            ) as $level
-          | (
-              [$s.taille, $s.harness, $s.intervention, $s.parallele]
-              | map(select(. == null or . == "unknown"))
-              | length
-            ) as $unk
-          | {
-              level: $level,
-              next: {
-                white: "red", red: "blue", blue: "green",
-                green: "copper", copper: "silver", silver: "gold", gold: null
-              }[$level],
-              blocking_axis: (
-                if $level == "gold" then null
-                elif $level == "silver" then
-                  (if $s.autonomy != "agents_pick" then "autonomy" else "throughput" end)
-                elif $level == "copper" then
-                  (if ($rh == null or $rh < 4) then "harness" else "intervention" end)
-                elif $level == "green" then "parallele"
-                elif $level == "blue" then
-                  (if ($rt == null or $rt < 3) then "taille"
-                   elif ($rh == null or $rh < 3) then "harness"
-                   else "intervention" end)
-                elif $level == "red" then
-                  (if ($rt == null or $rt < 2) then "taille"
-                   elif ($rh == null or $rh < 2) then "harness"
-                   else "intervention" end)
-                elif ($rt == null or $rt < 1) then "taille"
-                elif ($rh == null or $rh < 1) then "harness"
-                elif ($ri == null or $ri < 1) then "intervention"
-                elif ($rp == null or $rp < 1) then "parallele"
-                else "all"
-                end
-              ),
-              confidence: (if $unk >= 2 then "low" elif $unk == 1 then "medium" else "high" end),
-              signals: $s
-            }
+          .[2] as $t
+          | (.[0] // []) as $pairs
+          | (.[1] // []) as $ex
+          | def blank:
+              {
+                taille: "unknown", harness: "unknown", intervention: "unknown",
+                parallele: "unknown", autonomy: "unknown", throughput: "unknown",
+                missing: ["all"], evidence: {}
+              };
+            def contra($s):
+              (
+                (($s.taille == "L") or ($s.taille == "XL"))
+                and ($s.harness == "none")
+              )
+              or (
+                ($s.intervention == "never")
+                and (($s.harness == "none") or ($s.harness == "prompts"))
+              )
+              or (
+                ($s.parallele == "3")
+                and (($s.taille == "none") or ($s.taille == "S"))
+              )
+              or (
+                ($s.autonomy == "agents_pick")
+                and ($s.harness != "context_behavior_loops")
+              );
+            def score($s):
+              ({none:0,S:1,M:2,L:3,XL:3}[$s.taille]) as $rt
+              | ({
+                  none:0, prompts:1, context:2,
+                  context_behavior:3, context_behavior_loops:4
+                }[$s.harness]) as $rh
+              | ({
+                  none:0, after_majority:1, after_part:2,
+                  key_steps:3, never:4
+                }[$s.intervention]) as $ri
+              | ({"0":0,"1":1,"3":2}[$s.parallele]) as $rp
+              | (
+                  if ($rt != null and $rt >= 3 and $rh != null and $rh >= 4
+                      and $ri != null and $ri >= 4 and $rp != null and $rp >= 2
+                      and $s.autonomy == "agents_pick"
+                      and $s.throughput == "multi_pr_day")
+                  then "gold"
+                  elif ($rt != null and $rt >= 3 and $rh != null and $rh >= 4
+                        and $ri != null and $ri >= 4 and $rp != null and $rp >= 2)
+                  then "silver"
+                  elif ($rt != null and $rt >= 3 and $rh != null and $rh >= 3
+                        and $ri != null and $ri >= 3 and $rp != null and $rp >= 2)
+                  then "copper"
+                  elif ($rt != null and $rt >= 3 and $rh != null and $rh >= 3
+                        and $ri != null and $ri >= 3 and $rp != null and $rp >= 1)
+                  then "green"
+                  elif ($rt != null and $rt >= 2 and $rh != null and $rh >= 2
+                        and $ri != null and $ri >= 2 and $rp != null and $rp >= 1)
+                  then "blue"
+                  elif ($rt != null and $rt >= 1 and $rh != null and $rh >= 1
+                        and $ri != null and $ri >= 1 and $rp != null and $rp >= 1)
+                  then "red"
+                  else "white"
+                  end
+                ) as $level
+              | (
+                  [$s.taille, $s.harness, $s.intervention, $s.parallele]
+                  | map(select(. == null or . == "unknown"))
+                  | length
+                ) as $unk
+              | {
+                  level: $level,
+                  rank: {
+                    white:0, red:1, blue:2, green:3,
+                    copper:4, silver:5, gold:6
+                  }[$level],
+                  next: {
+                    white:"red", red:"blue", blue:"green",
+                    green:"copper", copper:"silver", silver:"gold", gold:null
+                  }[$level],
+                  blocking_axis: (
+                    if $level == "gold" then null
+                    elif $level == "silver" then
+                      (if $s.autonomy != "agents_pick" then "autonomy" else "throughput" end)
+                    elif $level == "copper" then
+                      (if ($rh == null or $rh < 4) then "harness" else "intervention" end)
+                    elif $level == "green" then "parallele"
+                    elif $level == "blue" then
+                      (if ($rt == null or $rt < 3) then "taille"
+                       elif ($rh == null or $rh < 3) then "harness"
+                       else "intervention" end)
+                    elif $level == "red" then
+                      (if ($rt == null or $rt < 2) then "taille"
+                       elif ($rh == null or $rh < 2) then "harness"
+                       else "intervention" end)
+                    elif ($rt == null or $rt < 1) then "taille"
+                    elif ($rh == null or $rh < 1) then "harness"
+                    elif ($ri == null or $ri < 1) then "intervention"
+                    elif ($rp == null or $rp < 1) then "parallele"
+                    else "all"
+                    end
+                  ),
+                  confidence: (if (contra($s) or $unk >= 2) then "low" elif $unk == 1 then "medium" else "high" end),
+                  contradiction: contra($s),
+                  unknown_count: $unk,
+                  gap: (
+                    if $level == "gold" then "deja Gold"
+                    elif $level == "silver" then "laisser les agents prendre les tickets et merger plusieurs PR par jour sans commit humain"
+                    elif $level == "copper" then "installer une boucle qui relance l'IA tant que la CI est rouge, et ne plus toucher au diff"
+                    elif $level == "green" then "mener 3 chantiers le meme jour jusqu'a la PR"
+                    elif $level == "blue" then "versionner rules + agents, n'intervenir qu'aux etapes cles, viser une PR taille L"
+                    elif $level == "red" then "poser une memoire projet et relire seulement une partie du diff"
+                    else "livrer une PR taille S assistee, garder le prompt, un seul chantier"
+                    end
+                  ),
+                  signals: $s
+                };
+            [range(0; ($pairs | length))]
+            | map(
+                . as $i
+                | $pairs[$i] as $p
+                | (($ex[$i] // blank)) as $s
+                | score($s) as $sc
+                | $sc + {
+                    path: $p.path,
+                    stem: $p.stem,
+                    snapshot: {
+                      t: $t,
+                      evidence: [
+                        {
+                          key: "unknown_count",
+                          value: ([($sc.unknown_count * 2000), 10000] | min),
+                          source: "scorer",
+                          observed_at: $t,
+                          digest: ("u-" + $p.stem),
+                          confidentiality: "internal",
+                          integrity: "verified",
+                          quality: {
+                            freshness: "fresh",
+                            completeness: (if $sc.unknown_count == 0 then "complete" else "paginated_partial" end),
+                            independence_group: "scorer"
+                          }
+                        },
+                        {
+                          key: "contradiction",
+                          value: $sc.contradiction,
+                          source: "scorer",
+                          observed_at: $t,
+                          digest: ("c-" + $p.stem),
+                          confidentiality: "internal",
+                          integrity: "verified",
+                          quality: {
+                            freshness: "fresh",
+                            completeness: "complete",
+                            independence_group: "scorer"
+                          }
+                        }
+                      ]
+                    }
+                  }
+              )
+
+  decided:
+    with:
+      items: ${{ tasks.scored.output }}
+      snapshot: ${{ item.snapshot }}
+    for_each:
+      items: ${{ with.items }}
+      max_parallel: 8
+      fail_fast: false
+    on_error:
+      recover: null
+    invoke:
+      tool: "nika:decide"
+      args:
+        bundle: "${{ const.bundle }}"
+        evidence: "${{ with.snapshot }}"
 
   explain:
     with:
-      scored: ${{ tasks.scored.output }}
+      items: ${{ tasks.scored.output }}
+      model: ${{ inputs.model }}
+    for_each:
+      items: ${{ with.items }}
+      max_parallel: 4
+      fail_fast: false
+    on_error:
+      recover: null
+    retry:
+      max_attempts: 2
+      backoff_strategy: exponential
+      jitter: true
     infer:
-      max_tokens: 1200
+      model: "${{ inputs.model }}"
+      max_tokens: 2500
       prompt: |
-        You explain an AIDD verdict. You MUST keep the level exactly as given.
-        Do not upgrade or downgrade it.
+        Expliquer un verdict AIDD. Le niveau est ${{ item.level }}.
+        Interdiction de le changer. Cite les preuves. Une page courte, en francais.
 
-        Verdict ·
-        ${{ with.scored }}
+        Axe qui bloque le cran suivant: ${{ item.blocking_axis }}
+        Prochain cran: ${{ item.next }}
+        Geste impose (ne pas en inventer un autre): ${{ item.gap }}
+        Confiance: ${{ item.confidence }}
+        Contradiction detectee: ${{ item.contradiction }}
+        Signaux: ${{ item.signals }}
 
-        Write:
-        1. One sentence naming the level and the blocking axis
-        2. Why, citing the evidence quotes
-        3. The single next move to reach `next` (or "already Gold")
+        Ecris why (2-4 phrases) et next_move (1 phrase, le geste impose).
       schema:
         type: object
         additionalProperties: false
-        required: [level, why, next_move]
+        required: [why, next_move]
         properties:
-          level: { type: string }
           why: { type: string }
           next_move: { type: string }
 
-  save:
+  cards:
     with:
       scored: ${{ tasks.scored.output }}
-      story: ${{ tasks.explain.output }}
+      decided: ${{ tasks.decided.output }}
+      stories: ${{ tasks.explain.output }}
     invoke:
       tool: "nika:jq"
       args:
-        input: ["${{ with.scored }}", "${{ with.story }}"]
+        input: ["${{ with.scored }}", "${{ with.decided }}", "${{ with.stories }}"]
         expression: >-
-          .[0] as $s | .[1] as $t
-          | (
-              "# " + ($s.level | ascii_upcase)
-              + " · confidence " + $s.confidence + "\n\n"
-              + ($t.why // "") + "\n\n"
-              + "## Next\n\n" + ($t.next_move // "") + "\n"
+          .[0] as $s | .[1] as $d | .[2] as $t
+          | [range(0; ($s | length))]
+          | map(
+              . as $i
+              | $s[$i] as $row
+              | (($d[$i] // {outcome: "defer"}).outcome // "defer") as $out
+              | (($t[$i] // {why: "profil illisible", next_move: $row.gap})) as $story
+              | ($row.level | ascii_upcase) as $L
+              | {
+                  stem: $row.stem,
+                  path: $row.path,
+                  level: $row.level,
+                  rank: $row.rank,
+                  next: $row.next,
+                  blocking_axis: $row.blocking_axis,
+                  confidence: $row.confidence,
+                  contradiction: $row.contradiction,
+                  publish: $out,
+                  why: $story.why,
+                  next_move: $story.next_move,
+                  out_path: ("./out/verdicts/" + $row.stem + ".md"),
+                  markdown: (
+                    "# " + $L
+                    + " · confiance " + $row.confidence
+                    + " · publication " + $out + "\n\n"
+                    + $story.why + "\n\n"
+                    + "## Axe bloquant\n\n"
+                    + (($row.blocking_axis // "aucun") | tostring) + "\n\n"
+                    + "## Prochain cran\n\n"
+                    + $story.next_move + "\n"
+                  )
+                }
             )
 
-  write:
+  write_each:
     with:
-      body: ${{ tasks.save.output }}
+      cards: ${{ tasks.cards.output }}
+      path: ${{ item.out_path }}
+      body: ${{ item.markdown }}
+    for_each:
+      items: ${{ with.cards }}
+      max_parallel: 8
+      fail_fast: false
+    on_error:
+      recover: null
     invoke:
       tool: "nika:write"
       args:
-        path: "./out/verdict.md"
+        path: "${{ with.path }}"
         content: "${{ with.body }}"
         create_dirs: true
 
+  chart:
+    with:
+      cards: ${{ tasks.cards.output }}
+    invoke:
+      tool: "nika:jq"
+      args:
+        input: "${{ with.cards }}"
+        expression: "map({ profile: .stem, rank: .rank })"
+
+  picture:
+    with:
+      rows: ${{ tasks.chart.output }}
+    invoke:
+      tool: "nika:chart"
+      args:
+        data: "${{ with.rows }}"
+        semantics: { profile: category, rank: count }
+        chart: { type: bar, x: profile, y: rank, title: "Niveaux AIDD (0 White · 6 Gold)" }
+        out: "./out/team.svg"
+
+  roster:
+    with:
+      cards: ${{ tasks.cards.output }}
+    invoke:
+      tool: "nika:jq"
+      args:
+        input: "${{ with.cards }}"
+        expression: >-
+          (map("- **" + .stem + "** · " + .level
+               + " · " + .confidence
+               + " · publish " + .publish) | join("\n")) as $rows
+          | "# Equipe\n\n"
+            + "La loi: un niveau n'est atteint que si tous ses axes le sont.\n"
+            + "Le modele n'ecrit pas le niveau. jq le calcule. nika:decide dit si on publie.\n\n"
+            + $rows + "\n"
+
+  write_team:
+    with:
+      body: ${{ tasks.roster.output }}
+    invoke:
+      tool: "nika:write"
+      args:
+        path: "./out/team.md"
+        content: "${{ with.body }}"
+        create_dirs: true
+
+  expected:
+    when: ${{ inputs.self_test == true }}
+    invoke:
+      tool: "nika:read"
+      args:
+        path: "${{ const.expected }}"
+
+  compare:
+    with:
+      cards: ${{ tasks.cards.output }}
+      expected: ${{ tasks.expected.output }}
+    when: ${{ inputs.self_test == true }}
+    invoke:
+      tool: "nika:jq"
+      args:
+        input: ["${{ with.cards }}", "${{ with.expected }}"]
+        expression: >-
+          .[0] as $cards
+          | (.[1] | if type == "string" then fromjson else . end) as $exp
+          | ($cards | map(select($exp[.stem] != null and $exp[.stem] != .level))) as $bad
+          | {
+              ok: ($bad | length == 0),
+              message: (
+                if ($bad | length == 0) then "self-test green"
+                else ("mismatch " + ($bad | map(.stem + "=" + .level + " want " + $exp[.stem]) | join(", ")))
+                end
+              )
+            }
+
+  selfcheck:
+    with:
+      ok: ${{ tasks.compare.output.ok }}
+      message: ${{ tasks.compare.output.message }}
+    when: ${{ inputs.self_test == true }}
+    invoke:
+      tool: "nika:assert"
+      args:
+        condition: ${{ with.ok }}
+        message: "${{ with.message }}"
+
 outputs:
-  level:
-    value: ${{ tasks.scored.output.level }}
-    description: "Bottleneck level · jq, not the model"
-  confidence:
-    value: ${{ tasks.scored.output.confidence }}
-  blocking_axis:
-    value: ${{ tasks.scored.output.blocking_axis }}
-  story:
-    value: ${{ tasks.explain.output }}
+  cards:
+    value: ${{ tasks.cards.output }}
+    description: "Per-profile verdicts · level from jq, publish from nika:decide"
+  team:
+    value: ${{ tasks.roster.output }}

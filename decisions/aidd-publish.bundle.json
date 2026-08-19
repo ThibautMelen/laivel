@@ -1,0 +1,134 @@
+{
+  "decision_bundle_format": 1,
+  "manifest": {
+    "id": "aidd-publish",
+    "version": "1.0.0",
+    "owner": "laivel",
+    "license": "MIT",
+    "valid_until": "2027-09-01T00:00:00Z"
+  },
+  "evidence_schema": {
+    "unknown_count": {
+      "type": "integer",
+      "required": true,
+      "sources": ["scorer"],
+      "integrity": "verified"
+    },
+    "contradiction": {
+      "type": "bool",
+      "required": true,
+      "sources": ["scorer"],
+      "integrity": "verified"
+    },
+    "profile_name": {
+      "type": "string",
+      "required": false,
+      "identity": true,
+      "sources": ["scorer"],
+      "integrity": "observed"
+    }
+  },
+  "transforms": {
+    "unknowns_0_6": {
+      "kind": "clamp",
+      "min": 0,
+      "max": 10000
+    },
+    "certainty_from_unknowns": {
+      "kind": "linear",
+      "min": 0,
+      "max": 10000,
+      "scale_bp": -10000,
+      "offset": 10000
+    },
+    "contradiction_step": {
+      "kind": "bucket",
+      "min": 0,
+      "max": 1,
+      "edges": [1],
+      "values": [0, 10000]
+    }
+  },
+  "rules": {
+    "dimensions": {
+      "certainty": {
+        "terms": [
+          {
+            "evidence": "unknown_count",
+            "transform": "certainty_from_unknowns",
+            "weight_bp": 10000,
+            "monotonicity": "decreases"
+          }
+        ]
+      },
+      "conflict_load": {
+        "terms": [
+          {
+            "evidence": "contradiction",
+            "transform": "contradiction_step",
+            "weight_bp": 10000,
+            "monotonicity": "increases"
+          }
+        ]
+      }
+    },
+    "thresholds": [
+      {
+        "dimension": "certainty",
+        "recommend_gte_bp": 8000
+      }
+    ]
+  },
+  "governance": {
+    "never_automatic": [],
+    "override": {
+      "append_only": true,
+      "reason_required": true
+    },
+    "appeal": "re-run with a more complete profile",
+    "human_required_triggers": ["conflict_on_required"]
+  },
+  "fixtures": [
+    {
+      "name": "complete",
+      "class": "positive",
+      "evidence": {
+        "unknown_count": 0,
+        "contradiction": false
+      }
+    },
+    {
+      "name": "one-unknown",
+      "class": "ambiguous",
+      "evidence": {
+        "unknown_count": 2000,
+        "contradiction": false
+      }
+    },
+    {
+      "name": "holey",
+      "class": "negative",
+      "evidence": {
+        "unknown_count": 8000,
+        "contradiction": false
+      }
+    },
+    {
+      "name": "two-scorers",
+      "class": "contradictory",
+      "evidence": {
+        "unknown_count": 0,
+        "contradiction": false
+      }
+    },
+    {
+      "name": "identity-probe",
+      "class": "adversarial",
+      "evidence": {
+        "unknown_count": 0,
+        "contradiction": false,
+        "profile_name": "a-very-senior-name"
+      }
+    }
+  ]
+}

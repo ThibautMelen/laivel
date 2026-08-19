@@ -1,7 +1,10 @@
 # Profil · Samir
 
-Samir colle des prompts dans ChatGPT et colle le résultat dans le repo.
-La plus grosse livraison assistée de la semaine: un endpoint unique, taille S.
-Pas de fichier de contexte versionné. Après ouverture de la PR, il enchaîne
-huit commits correctifs (« fix typo », « oops tests »). Un seul chantier à la fois.
-Il relit tout après coup, presque ligne par ligne.
+Samir colle des prompts dans ChatGPT et recolle le resultat dans le repo.
+
+- taille: S (un endpoint unique)
+- harness: prompts (aucun fichier de contexte versionne)
+- intervention: after_majority (il relit tout apres coup, 8 commits correctifs)
+- parallele: 1
+- autonomy: no
+- throughput: one

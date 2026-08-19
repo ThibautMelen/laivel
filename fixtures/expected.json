@@ -1,0 +1,11 @@
+{
+  "white": "white",
+  "red": "red",
+  "blue": "blue",
+  "green": "green",
+  "copper": "copper",
+  "silver": "silver",
+  "gold": "gold",
+  "incomplete": "white",
+  "contradiction": "white"
+}

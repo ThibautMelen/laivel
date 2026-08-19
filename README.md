@@ -1,34 +1,44 @@
 # laivel
 
-A lead-tech tool that places a developer on the official AIDD grid.
+A lead-tech tool that places each developer on the official AIDD grid.
 
-Built for [LAIVEL UP](https://github.com/ai-driven-dev/laivel-up) · 28–31 August 2026.
+Built for [LAIVEL UP](https://github.com/ai-driven-dev/laivel-up) · 28-31 August 2026.
 
-The model extracts four axes. `jq` applies the law *all axes or nothing*. The model then says how to climb one level. It cannot change the level.
+One Nika workflow. No other runtime. OpenAI extracts facts. `jq` applies
+the law *all axes or nothing*. `nika:decide` says whether to publish or
+abstain. The model never writes the level.
 
 ## Run it
 
 ```bash
-brew install supernovae-st/tap/nika   # or the install at https://nika.sh
-nika run laivel.nika.yaml --input profile=./fixtures/green.md
+brew install supernovae-st/tap/nika   # https://nika.sh
+export OPENAI_API_KEY=...             # openai/gpt-5-mini
+nika run laivel.nika.yaml --max-cost-usd 3
 ```
 
-Zero-key rehearsal:
+Official profiles (Friday): drop them in `profiles/` then
 
 ```bash
-nika run laivel.nika.yaml --model mock/echo --input profile=./fixtures/incomplete.md
+nika run laivel.nika.yaml --var profiles=./profiles/*.md --max-cost-usd 3
 ```
 
-Output: `out/verdict.md` plus `--output json`.
+Self-test against the committed fixtures:
+
+```bash
+nika run laivel.nika.yaml --var self_test=true --max-cost-usd 3
+```
+
+Zero-key rehearsal: `--model mock/echo`.
+
+Outputs: `out/verdicts/*.md` · `out/team.md` · `out/team.svg`.
 
 ## How it works
 
-See [METHOD.md](./METHOD.md). Official grid: [ai-driven-dev/laivel-up `levels/aidd.md`](https://github.com/ai-driven-dev/laivel-up/blob/main/levels/aidd.md).
+See [METHOD.md](./METHOD.md). Official grid:
+[levels/aidd.md](https://github.com/ai-driven-dev/laivel-up/blob/main/levels/aidd.md).
 
 ```
-profile  →  extract (infer)  →  score (jq)  →  explain (infer)  →  verdict
-                 │                    │
-            typed signals        the law lives here
+glob → read → infer (facts) → jq (law) → nika:decide (publish?) → infer (story)
 ```
 
 ## Author
