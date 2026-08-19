@@ -4,7 +4,7 @@ La grille officielle: **un niveau n'est atteint que si tous ses axes le sont**.
 
 Laivel est un seul workflow Nika. Pas de script, pas d'autre runtime.
 
-## 1. Extraire
+## Extraire
 
 OpenAI (`openai/gpt-5-mini`) lit chaque profil **et la grille**
 (`levels/aidd.yaml`). Il sort des signaux types, avec citations.
@@ -12,35 +12,35 @@ Il n'ecrit pas de niveau. Schema ferme, retry.
 
 `parallele` accepte entier ou string (`-1 | 0 | 1 | 3`). Un enum
 string seul cassait des que le modele renvoyait `3` (nombre) —
-4/9 held recoveraient en `null` puis White. Evidence est
-optionnelle: un champ oublie ne doit pas tuer l'extrait.
+l'extrait tombait en `null`, puis White. Evidence est optionnelle:
+un champ oublie ne doit pas tuer l'extrait.
 
 « Jamais deux chantiers » / « un ticket a la fois » = parallele **1**,
-pas 0. 0 = aucune livraison. (noor: extract ok, scorer White faute
-de cette traduction.)
+pas 0. 0 = aucune livraison.
 
 Premier passage rate → second infer, schema encore plus petit.
-Toujours `null` → `unknown` (`recover: null`). Sur le 9-held
-vert du 2026-08-19, seul `paradox` rate encore les deux passes:
-`nika:decide` defer White. C'est le bon reflexe jury (ne pas
-inventer un cran).
+Toujours `null` → `unknown` (`recover: null`). Si l'extract rate
+encore, `nika:decide` defer White. Ne pas inventer un cran.
 
 Les fixtures structurees prouvent la loi. Les profils `held/` sont
 de la prose de lead tech, sans enums: c'est le e2e qui ressemble
 au sujet de vendredi.
 
-## 2. La loi (jq)
+## La loi (jq)
 
 Le plus haut palier dont tous les minima sont tenus. `unknown` ne
 satisfait aucun minimum. Une contradiction (flag `conflict`, XL sans
 harness, never + prompts, 3 chantiers en taille S, agents sans
-boucles) **force White** et baisse la confiance. On ne note pas un
-recit qui se contredit.
+boucles) **force White** et baisse la confiance.
 
 Silver et Gold partagent les 4 axes. Gold exige en plus `agents_pick`
 et `multi_pr_day`.
 
-## 3. Publier ou s'abstenir (`nika:decide`)
+Avant de scorer, jq corrige deux lectures: ChatGPT colle sans fichier
+= `prompts` (pas `none`) · hook CI + plus de diff = `never` (pas
+`key_steps`).
+
+## Publier ou s'abstenir (`nika:decide`)
 
 Le bundle `decisions/aidd-publish.bundle.json` recoit le nombre
 d'unknowns et le flag contradiction.
@@ -51,29 +51,19 @@ d'unknowns et le flag contradiction.
 
 C'est le critere « assume quand il n'est pas sur », en contrat.
 
-## 4. Raconter
+## Raconter, puis sceller
 
 Le modele recit le geste que jq a deja choisi. Il ne peut pas changer
 le niveau (le champ n'est plus dans son schema).
 
-## 5. Equipe + recu
+Ensuite, uniquement des builtins Nika: verdicts, roster
+(`nika:convert`), 3 charts, recu (`nika:date` + `nika:uuid` +
+`nika:hash` blake3), `nika:validate` contre
+`decisions/team.schema.json`, `nika:emit` `laivel.roster`,
+`out/JURY.md` (jq, pas le modele). Self-test: `nika:json_diff` →
+`out/self-test.patch.json`. Extract rate → unknown → White + defer.
 
-Un verdict markdown par profil, puis uniquement des builtins Nika:
-
-- `out/team.md` · `out/team.json` · `out/team.yaml` (`nika:convert`)
-- `out/team.svg` barres · `out/belts.svg` effectif · `out/axes.svg` heatmap
-- `out/receipt.json` · `nika:date` + `nika:uuid` + `nika:hash` blake3
-- `nika:validate` contre `decisions/team.schema.json` (assert)
-- `nika:emit` `laivel.roster` dans la trace
-- `out/JURY.md` une page pour le jury (jq, pas le modele)
-- self-test: `nika:json_diff` → `out/self-test.patch.json`
-
-jq corrige deux lectures recurrentes avant de scorer: ChatGPT colle
-sans fichier = `prompts` (pas `none`) · hook CI + plus de diff =
-`never` (pas `key_steps`). Si l'extract rate, fallback unknown →
-White + defer. Pas de cran invente.
-
-`held/` est le e2e vendredi: notes de 1:1, zero enum.
+## Held (prose, zero enum)
 
 | note | belt |
 |---|---|

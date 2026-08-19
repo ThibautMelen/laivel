@@ -1,20 +1,29 @@
 # laivel
 
-A lead-tech tool that places each developer on the official AIDD grid.
+**30 seconds.** One Nika workflow places a developer on the official AIDD
+grid (White → Gold). OpenAI extracts cited facts. `jq` applies the law:
+a level is reached only if every axis is. `nika:decide` publishes or
+abstains. Incomplete or contradictory notes go White — never a guessed
+belt. Clone standalone, install Nika, run.
 
 Built for [LAIVEL UP](https://github.com/ai-driven-dev/laivel-up) · 28-31 August 2026.
 
-One Nika workflow. No other runtime. OpenAI extracts facts. `jq` applies
-the law *all axes or nothing*. `nika:decide` says whether to publish or
-abstain. The model never writes the level.
+[METHOD.md](./METHOD.md) · [VIDEO.md](./VIDEO.md) · grid [levels/aidd.md](./levels/aidd.md)
 
 ## Run it
 
+**Clone standalone.** If another `nika.yaml` sits above this folder
+(a monorepo), `nika` loads that file first and refuses.
+
 ```bash
 brew install supernovae-st/tap/nika   # https://nika.sh
+git clone https://github.com/ThibautMelen/laivel.git
+cd laivel
 export OPENAI_API_KEY=...             # openai/gpt-5-mini
 nika run laivel.nika.yaml --max-cost-usd 3
 ```
+
+Default glob: `./fixtures/*.md`.
 
 Official profiles (Friday): drop them in `profiles/` then
 
@@ -40,17 +49,18 @@ nika run laivel.nika.yaml \
 
 Zero-key rehearsal: `--model mock/echo`.
 
-Outputs: `out/verdicts/*.md` · `out/team.md` · `out/team.json` ·
-`out/team.yaml` · `out/team.svg` · `out/belts.svg` · `out/axes.svg` ·
-`out/receipt.json` · `out/JURY.md`.
+## Outputs
 
-Run from a **standalone clone**. If another `nika.yaml` sits above this
-folder (a monorepo), `nika` will load that file first and refuse.
+| path | what |
+|---|---|
+| `out/verdicts/*.md` | one note per profile |
+| `out/team.md` · `out/team.json` · `out/team.yaml` | roster |
+| `out/team.svg` · `out/belts.svg` · `out/axes.svg` | charts |
+| `out/receipt.json` | blake3 of the roster + `nika:date` + `nika:uuid` |
+| `out/JURY.md` | one page for the jury (jq, not the model) |
+| `out/self-test.patch.json` | empty array when `self_test` matches |
 
 ## How it works
-
-See [METHOD.md](./METHOD.md). Official grid (vendored):
-[levels/aidd.md](./levels/aidd.md).
 
 ```
 glob → read → infer (facts) → retry → fallback
@@ -59,9 +69,7 @@ glob → read → infer (facts) → retry → fallback
 ```
 
 Contradiction or two fighting facts → White, never a guessed belt.
-
-The model never writes a belt. The receipt (`out/receipt.json`) is a
-blake3 of the roster, stamped with `nika:date` + `nika:uuid`.
+The model never writes a belt. The law lives in `jq`, frozen.
 
 ## Author
 
