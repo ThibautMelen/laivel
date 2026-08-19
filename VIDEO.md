@@ -69,5 +69,5 @@ export OPENAI_API_KEY=...
 nika run laivel.nika.yaml
 ```
 
-Clone le dépôt **seul**. Un `nika.yaml` parent intercepterait le run.
+Clone le dépôt. `nika.yaml` à la racine est le projet — un parent ne peut plus intercepter le run.
 MIT. La loi est dans le jq, pas dans le modèle.

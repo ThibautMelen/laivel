@@ -1,0 +1,8 @@
+# nika.yaml — this folder is the Nika project root.
+# Discovery walks up from CWD and STOPS here. Without this file a parent
+# nika.yaml (a monorepo) intercepts `nika run` / `nika check`.
+# Ladder per key: the invocation flag / env var wins · then this file · then the default.
+# `traces:` is a later-train key — the brew binary this repo targets
+# still defers it (nika arm · cadence.deferred-key).
+nika: v1
+ceiling: 3.00

@@ -18,15 +18,18 @@ jamais la ceinture. Incomplet ou contradictoire → White + `nika:decide` defer.
 
 ## Run it
 
-**Clone standalone.** If another `nika.yaml` sits above this folder
-(a monorepo), `nika` loads that file first and refuses.
+This folder is a founded Nika project (`nika init`): `nika.yaml` is the
+root (spend ceiling · trace retention — discovery stops here), `AGENTS.md`
+is the agent contract, `.agents/skills/nika-authoring` is the authoring
+skill, `.vscode` wires the schema, `.cursor` is the editor kit. Runtime
+state lives in `.nika/` (gitignored).
 
 ```bash
 brew install supernovae-st/tap/nika   # https://nika.sh
 git clone https://github.com/ThibautMelen/laivel.git
 cd laivel
 export OPENAI_API_KEY=...             # openai/gpt-5-mini
-nika run laivel.nika.yaml --max-cost-usd 3
+nika run laivel.nika.yaml             # ceiling 3.00 from nika.yaml · --max-cost-usd wins
 ```
 
 Default glob: `./fixtures/*.md`.

@@ -2,6 +2,10 @@
 
 72h hackathon build for LAIVEL UP (AI-Driven Dev). Optimize for the demo, not for maintenance.
 
+This folder is a Nika project. `nika.yaml` is the project file (discovery
+stops here). Agent contract: `AGENTS.md`. Authoring skill:
+`.agents/skills/nika-authoring`. Runtime: `.nika/` (gitignored).
+
 ## Operating mode
 
 - Ship > polish. A command that runs beats a dashboard that doesn't.

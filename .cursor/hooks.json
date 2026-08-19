@@ -1,0 +1,13 @@
+{
+  "hooks": {
+    "sessionStart": [
+      { "command": "./.cursor/hooks-nika/session-context.sh" }
+    ],
+    "afterFileEdit": [
+      { "command": "./.cursor/hooks-nika/check-on-edit.sh" }
+    ],
+    "beforeShellExecution": [
+      { "command": "./.cursor/hooks-nika/guard-run.sh" }
+    ]
+  }
+}
