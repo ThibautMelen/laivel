@@ -40,16 +40,21 @@ nika run laivel.nika.yaml \
 
 Zero-key rehearsal: `--model mock/echo`.
 
-Outputs: `out/verdicts/*.md` · `out/team.md` · `out/team.svg`.
+Outputs: `out/verdicts/*.md` · `out/team.md` · `out/team.json` · `out/team.svg`.
+
+Run from a **standalone clone**. If another `nika.yaml` sits above this
+folder (a monorepo), `nika` will load that file first and refuse.
 
 ## How it works
 
-See [METHOD.md](./METHOD.md). Official grid:
-[levels/aidd.md](https://github.com/ai-driven-dev/laivel-up/blob/main/levels/aidd.md).
+See [METHOD.md](./METHOD.md). Official grid (vendored):
+[levels/aidd.md](./levels/aidd.md).
 
 ```
-glob → read → infer (facts) → jq (law) → nika:decide (publish?) → infer (story)
+glob → read → infer (facts) → retry misses → jq (law) → nika:decide (publish?) → infer (story)
 ```
+
+Contradiction or two fighting facts → White, never a guessed belt.
 
 ## Author
 

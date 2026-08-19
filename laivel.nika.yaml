@@ -126,30 +126,31 @@ tasks:
       pairs: ${{ tasks.pairs.output }}
       model: ${{ inputs.model }}
       rubric: ${{ tasks.rubric.output }}
+    timeout: "90s"
     for_each:
       items: ${{ with.pairs }}
-      max_parallel: 4
+      max_parallel: 2
       fail_fast: false
     on_error:
       recover: null
     retry:
-      max_attempts: 3
+      max_attempts: 4
       backoff_strategy: exponential
       jitter: true
     infer:
       model: "${{ inputs.model }}"
-      max_tokens: 8000
+      max_tokens: 2500
       prompt: |
         Extraire des FAITS AIDD. Ne PAS attribuer de niveau.
 
         Grille (loi: tous les axes ou rien) ·
         ${{ with.rubric }}
 
-        Enums uniquement:
+        Axes:
         taille: none | S | M | L | XL
         harness: none | prompts | context | context_behavior | context_behavior_loops
         intervention: none | after_majority | after_part | key_steps | never
-        parallele: 0 | 1 | 3
+        parallele: -1 (inconnu) | 0 | 1 | 3
         autonomy: no | human_starts | agents_pick
         throughput: none | one | multi_pr_day
 
@@ -158,11 +159,17 @@ tasks:
         - prompts colles, petit endpoint, beaucoup de commits correctifs → S / prompts / after_majority / 1
         - memoire projet, feature d'un module, relit une partie → M / context / after_part / 1
         - rules+agents versionnes, feature multi-etapes, seulement cadrage/revue → L / context_behavior / key_steps / 1
+        - un seul chantier, jamais deux en parallele, un ticket a la fois → parallele 1
+        - zero PR, aucune livraison, n'a pas commence → parallele 0
         - 3 chantiers le meme jour jusqu'a la PR → parallele 3
         - hook qui relance tant que la CI est rouge, zero commit humain → context_behavior_loops / never
+        - il lance encore chaque boucle le matin, le board ne dispatch pas → human_starts
         - les agents prennent les tickets tout seuls, plusieurs PR par jour → agents_pick / multi_pr_day
+        - tous les commits sont les siens apres coup → pas never (after_majority ou after_part)
+        - aucun AGENTS.md, aucune rule → harness none, meme si le recit dit que l'IA a tout genere
 
-        Sans preuve: unknown + l'axe dans missing. Contradiction: extraire les deux faits.
+        Sans preuve: unknown (parallele -1) et l'axe dans missing.
+        Deux faits incompatibles: conflict true, unknown sur les axes qui se battent.
 
         Fichier · ${{ item.stem }}
         Profil ·
@@ -178,7 +185,7 @@ tasks:
           - autonomy
           - throughput
           - missing
-          - evidence
+          - conflict
         properties:
           taille:
             type: string
@@ -190,8 +197,9 @@ tasks:
             type: string
             enum: [unknown, none, after_majority, after_part, key_steps, never]
           parallele:
-            type: string
-            enum: [unknown, "0", "1", "3"]
+            anyOf:
+              - { type: integer, enum: [-1, 0, 1, 3] }
+              - { type: string, enum: ["-1", "0", "1", "3", unknown] }
           autonomy:
             type: string
             enum: [unknown, no, human_starts, agents_pick]
@@ -201,20 +209,155 @@ tasks:
           missing:
             type: array
             items: { type: string }
+          conflict:
+            type: boolean
           evidence:
             type: object
             additionalProperties: false
-            required: [taille, harness, intervention, parallele]
             properties:
               taille: { type: array, items: { type: string } }
               harness: { type: array, items: { type: string } }
               intervention: { type: array, items: { type: string } }
               parallele: { type: array, items: { type: string } }
 
-  scored:
+  retry_need:
     with:
       pairs: ${{ tasks.pairs.output }}
       extracted: ${{ tasks.signals.output }}
+    invoke:
+      tool: "nika:jq"
+      args:
+        input: ["${{ with.pairs }}", "${{ with.extracted }}"]
+        expression: >-
+          transpose
+          | map(select(.[1] == null) | .[0])
+
+  retry_signals:
+    with:
+      need: ${{ tasks.retry_need.output }}
+      model: ${{ inputs.model }}
+    timeout: "90s"
+    for_each:
+      items: ${{ with.need }}
+      max_parallel: 2
+      fail_fast: false
+    on_error:
+      recover: null
+    retry:
+      max_attempts: 3
+      backoff_strategy: exponential
+      jitter: true
+    infer:
+      model: "${{ inputs.model }}"
+      max_tokens: 1200
+      prompt: |
+        Extraire uniquement les faits AIDD. Pas de niveau.
+        taille: none|S|M|L|XL|unknown
+        harness: none|prompts|context|context_behavior|context_behavior_loops|unknown
+        intervention: none|after_majority|after_part|key_steps|never|unknown
+        parallele: -1|0|1|3 (-1 = inconnu · un seul chantier = 1, pas 0)
+        autonomy: no|human_starts|agents_pick|unknown
+        throughput: none|one|multi_pr_day|unknown
+        Deux faits incompatibles: conflict true. Commits humains + never = conflict.
+        Fichier · ${{ item.stem }}
+        ${{ item.text }}
+      schema:
+        type: object
+        additionalProperties: false
+        required:
+          - taille
+          - harness
+          - intervention
+          - parallele
+          - autonomy
+          - throughput
+          - missing
+          - conflict
+        properties:
+          taille:
+            type: string
+            enum: [unknown, none, S, M, L, XL]
+          harness:
+            type: string
+            enum: [unknown, none, prompts, context, context_behavior, context_behavior_loops]
+          intervention:
+            type: string
+            enum: [unknown, none, after_majority, after_part, key_steps, never]
+          parallele:
+            anyOf:
+              - { type: integer, enum: [-1, 0, 1, 3] }
+              - { type: string, enum: ["-1", "0", "1", "3", unknown] }
+          autonomy:
+            type: string
+            enum: [unknown, no, human_starts, agents_pick]
+          throughput:
+            type: string
+            enum: [unknown, none, one, multi_pr_day]
+          missing:
+            type: array
+            items: { type: string }
+          conflict:
+            type: boolean
+
+  signals_merged:
+    with:
+      pairs: ${{ tasks.pairs.output }}
+      first: ${{ tasks.signals.output }}
+      need: ${{ tasks.retry_need.output }}
+      retry: ${{ tasks.retry_signals.output }}
+    invoke:
+      tool: "nika:jq"
+      args:
+        input:
+          - "${{ with.pairs }}"
+          - "${{ with.first }}"
+          - "${{ with.need }}"
+          - "${{ with.retry }}"
+        expression: >-
+          .[0] as $pairs
+          | .[1] as $first
+          | (.[2] // []) as $need
+          | (.[3] // []) as $retry
+          | ($need | map(.stem)) as $stems
+          | [range(0; ($pairs | length))]
+          | map(
+              . as $i
+              | if $first[$i] != null then $first[$i]
+                else
+                  (($stems | index($pairs[$i].stem)) // -1) as $j
+                  | if $j >= 0 then $retry[$j] else null end
+                end
+            )
+
+  extract_stats:
+    with:
+      first: ${{ tasks.signals.output }}
+      merged: ${{ tasks.signals_merged.output }}
+    invoke:
+      tool: "nika:jq"
+      args:
+        input: ["${{ with.first }}", "${{ with.merged }}"]
+        expression: >-
+          ((.[0] // []) | map(select(. == null)) | length) as $miss
+          | ((.[1] // []) | map(select(. == null)) | length) as $still
+          | ((.[1] // []) | length) as $n
+          | "extract " + ($n | tostring)
+            + " · first-pass miss " + ($miss | tostring)
+            + " · after retry " + ($still | tostring)
+
+  log_extract:
+    with:
+      msg: ${{ tasks.extract_stats.output }}
+    invoke:
+      tool: "nika:log"
+      args:
+        level: info
+        message: "${{ with.msg }}"
+
+  scored:
+    with:
+      pairs: ${{ tasks.pairs.output }}
+      extracted: ${{ tasks.signals_merged.output }}
       observed_at: ${{ const.observed_at }}
     invoke:
       tool: "nika:jq"
@@ -228,10 +371,21 @@ tasks:
               {
                 taille: "unknown", harness: "unknown", intervention: "unknown",
                 parallele: "unknown", autonomy: "unknown", throughput: "unknown",
-                missing: ["all"], evidence: {}
+                missing: ["all"], conflict: false, evidence: {}
               };
+            def para($v):
+              if ($v == -1) or ($v == "-1") or ($v == "unknown") or ($v == null)
+              then "unknown"
+              elif ($v == 0) or ($v == "0") then "0"
+              elif ($v == 1) or ($v == "1") then "1"
+              elif ($v == 3) or ($v == "3") then "3"
+              else "unknown" end;
+            def norm($raw):
+              (if $raw == null then blank else $raw end) as $s
+              | $s + { parallele: para($s.parallele), conflict: ($s.conflict == true) };
             def contra($s):
-              (
+              ($s.conflict == true)
+              or (
                 (($s.taille == "L") or ($s.taille == "XL"))
                 and ($s.harness == "none")
               )
@@ -259,7 +413,8 @@ tasks:
                 }[$s.intervention]) as $ri
               | ({"0":0,"1":1,"3":2}[$s.parallele]) as $rp
               | (
-                  if ($rt != null and $rt >= 3 and $rh != null and $rh >= 4
+                  if contra($s) then "white"
+                  elif ($rt != null and $rt >= 3 and $rh != null and $rh >= 4
                       and $ri != null and $ri >= 4 and $rp != null and $rp >= 2
                       and $s.autonomy == "agents_pick"
                       and $s.throughput == "multi_pr_day")
@@ -298,7 +453,8 @@ tasks:
                     green:"copper", copper:"silver", silver:"gold", gold:null
                   }[$level],
                   blocking_axis: (
-                    if $level == "gold" then null
+                    if contra($s) then "contradiction"
+                    elif $level == "gold" then null
                     elif $level == "silver" then
                       (if $s.autonomy != "agents_pick" then "autonomy" else "throughput" end)
                     elif $level == "copper" then
@@ -323,7 +479,8 @@ tasks:
                   contradiction: contra($s),
                   unknown_count: $unk,
                   gap: (
-                    if $level == "gold" then "deja Gold"
+                    if contra($s) then "trancher les faits incompatibles avant de noter"
+                    elif $level == "gold" then "deja Gold"
                     elif $level == "silver" then "laisser les agents prendre les tickets et merger plusieurs PR par jour sans commit humain"
                     elif $level == "copper" then "installer une boucle qui relance l'IA tant que la CI est rouge, et ne plus toucher au diff"
                     elif $level == "green" then "mener 3 chantiers le meme jour jusqu'a la PR"
@@ -338,9 +495,10 @@ tasks:
             | map(
                 . as $i
                 | $pairs[$i] as $p
-                | (($ex[$i] // blank)) as $s
+                | norm($ex[$i]) as $s
                 | score($s) as $sc
                 | $sc + {
+                    extract_ok: ($ex[$i] != null),
                     path: $p.path,
                     stem: $p.stem,
                     snapshot: {
@@ -399,9 +557,10 @@ tasks:
     with:
       items: ${{ tasks.scored.output }}
       model: ${{ inputs.model }}
+    timeout: "90s"
     for_each:
       items: ${{ with.items }}
-      max_parallel: 4
+      max_parallel: 2
       fail_fast: false
     on_error:
       recover: null
@@ -453,6 +612,7 @@ tasks:
               | {
                   stem: $row.stem,
                   path: $row.path,
+                  extract_ok: ($row.extract_ok != false),
                   level: $row.level,
                   rank: $row.rank,
                   next: $row.next,
@@ -524,7 +684,9 @@ tasks:
         expression: >-
           (map("- **" + .stem + "** · " + .level
                + " · " + .confidence
-               + " · publish " + .publish) | join("\n")) as $rows
+               + " · publish " + .publish
+               + (if .extract_ok == false then " · extract miss" else "" end)
+          ) | join("\n")) as $rows
           | "# Equipe\n\n"
             + "La loi: un niveau n'est atteint que si tous ses axes le sont.\n"
             + "Le modele n'ecrit pas le niveau. jq le calcule. nika:decide dit si on publie.\n\n"
@@ -537,6 +699,29 @@ tasks:
       tool: "nika:write"
       args:
         path: "./out/team.md"
+        content: "${{ with.body }}"
+        create_dirs: true
+
+  roster_json:
+    with:
+      cards: ${{ tasks.cards.output }}
+    invoke:
+      tool: "nika:jq"
+      args:
+        input: "${{ with.cards }}"
+        expression: >-
+          map({
+            stem, extract_ok, level, rank, next, blocking_axis,
+            confidence, contradiction, publish, why, next_move
+          })
+
+  write_json:
+    with:
+      body: ${{ tasks.roster_json.output }}
+    invoke:
+      tool: "nika:write"
+      args:
+        path: "./out/team.json"
         content: "${{ with.body }}"
         create_dirs: true
 
