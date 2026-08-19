@@ -33,11 +33,16 @@ inputs:
     type: bool
     required: false
     default: false
-    description: "When true, assert scored levels against fixtures/expected.json"
+    description: "When true, assert scored levels against expected.json"
+  expected:
+    type: string
+    required: false
+    default: "./fixtures/expected.json"
+    description: "Map of stem -> expected level, used only when self_test is true"
 
 const:
   bundle: "./decisions/aidd-publish.bundle.json"
-  expected: "./fixtures/expected.json"
+  rubric: "./levels/aidd.yaml"
   observed_at: "2026-08-19T12:00:00Z"
 
 permits:
@@ -54,6 +59,7 @@ permits:
   fs:
     read:
       - "./fixtures/**"
+      - "./held/**"
       - "./profiles/**"
       - "./levels/**"
       - "./decisions/**"
@@ -77,6 +83,12 @@ tasks:
       - law: taint
         from: inputs.profiles
         because: "operator glob, still gated by the literal permits.fs.read tree"
+
+  rubric:
+    invoke:
+      tool: "nika:read"
+      args:
+        path: "${{ const.rubric }}"
 
   texts:
     with:
@@ -113,6 +125,7 @@ tasks:
     with:
       pairs: ${{ tasks.pairs.output }}
       model: ${{ inputs.model }}
+      rubric: ${{ tasks.rubric.output }}
     for_each:
       items: ${{ with.pairs }}
       max_parallel: 4
@@ -127,19 +140,29 @@ tasks:
       model: "${{ inputs.model }}"
       max_tokens: 8000
       prompt: |
-        Extraire des FAITS AIDD depuis ce profil. Ne PAS attribuer de niveau.
-        Si une ligne liste deja l'enum (`- taille: S`), copie-la telle quelle.
+        Extraire des FAITS AIDD. Ne PAS attribuer de niveau.
 
-        Axes (une valeur, ou unknown):
-        - taille: none | S | M | L | XL
-        - harness: none | prompts | context | context_behavior | context_behavior_loops
-        - intervention: none | after_majority | after_part | key_steps | never
-        - parallele: 0 | 1 | 3
-        - autonomy: no | human_starts | agents_pick
-        - throughput: none | one | multi_pr_day
+        Grille (loi: tous les axes ou rien) ·
+        ${{ with.rubric }}
 
-        Cite une preuve courte par axe. Sans preuve: unknown, et liste l'axe dans missing.
-        N'invente rien. Un profil contradictoire: extraire les deux faits, ne pas resoudre.
+        Enums uniquement:
+        taille: none | S | M | L | XL
+        harness: none | prompts | context | context_behavior | context_behavior_loops
+        intervention: none | after_majority | after_part | key_steps | never
+        parallele: 0 | 1 | 3
+        autonomy: no | human_starts | agents_pick
+        throughput: none | one | multi_pr_day
+
+        Traduction (recit -> enum), ne pas inventer:
+        - aucune IA, aucun fichier de contexte → none / none / 0
+        - prompts colles, petit endpoint, beaucoup de commits correctifs → S / prompts / after_majority / 1
+        - memoire projet, feature d'un module, relit une partie → M / context / after_part / 1
+        - rules+agents versionnes, feature multi-etapes, seulement cadrage/revue → L / context_behavior / key_steps / 1
+        - 3 chantiers le meme jour jusqu'a la PR → parallele 3
+        - hook qui relance tant que la CI est rouge, zero commit humain → context_behavior_loops / never
+        - les agents prennent les tickets tout seuls, plusieurs PR par jour → agents_pick / multi_pr_day
+
+        Sans preuve: unknown + l'axe dans missing. Contradiction: extraire les deux faits.
 
         Fichier · ${{ item.stem }}
         Profil ·
@@ -522,7 +545,11 @@ tasks:
     invoke:
       tool: "nika:read"
       args:
-        path: "${{ const.expected }}"
+        path: "${{ inputs.expected }}"
+    lift:
+      - law: taint
+        from: inputs.expected
+        because: "operator path to a committed expected map, still inside permits.fs.read"
 
   compare:
     with:

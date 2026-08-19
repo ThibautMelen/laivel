@@ -6,9 +6,14 @@ Laivel est un seul workflow Nika. Pas de script, pas d'autre runtime.
 
 ## 1. Extraire
 
-OpenAI (`openai/gpt-5-mini`) lit chaque profil et sort des signaux types,
-avec citations. Il n'ecrit pas de niveau. Schema ferme, retry sur les
-erreurs transitoires. Un fichier illisible devient `unknown` (`recover: null`).
+OpenAI (`openai/gpt-5-mini`) lit chaque profil **et la grille**
+(`levels/aidd.yaml`). Il sort des signaux types, avec citations.
+Il n'ecrit pas de niveau. Schema ferme, retry. Un fichier illisible
+devient `unknown` (`recover: null`).
+
+Les fixtures structurees prouvent la loi. Les profils `held/` sont
+de la prose de lead tech, sans enums: c'est le e2e qui ressemble
+au sujet de vendredi.
 
 ## 2. La loi (jq)
 

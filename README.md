@@ -22,10 +22,20 @@ Official profiles (Friday): drop them in `profiles/` then
 nika run laivel.nika.yaml --var profiles=./profiles/*.md --max-cost-usd 3
 ```
 
-Self-test against the committed fixtures:
+Self-test (structured fixtures):
 
 ```bash
-nika run laivel.nika.yaml --var self_test=true --max-cost-usd 3
+nika run laivel.nika.yaml --var self_test=true --max-cost-usd 1
+```
+
+Held-out e2e (prose only, like Friday):
+
+```bash
+nika run laivel.nika.yaml \
+  --var profiles=./held/*.md \
+  --var expected=./held/expected.json \
+  --var self_test=true \
+  --max-cost-usd 1
 ```
 
 Zero-key rehearsal: `--model mock/echo`.
