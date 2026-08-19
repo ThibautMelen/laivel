@@ -40,7 +40,9 @@ nika run laivel.nika.yaml \
 
 Zero-key rehearsal: `--model mock/echo`.
 
-Outputs: `out/verdicts/*.md` · `out/team.md` · `out/team.json` · `out/team.svg`.
+Outputs: `out/verdicts/*.md` · `out/team.md` · `out/team.json` ·
+`out/team.yaml` · `out/team.svg` · `out/belts.svg` · `out/axes.svg` ·
+`out/receipt.json` · `out/JURY.md`.
 
 Run from a **standalone clone**. If another `nika.yaml` sits above this
 folder (a monorepo), `nika` will load that file first and refuse.
@@ -51,10 +53,15 @@ See [METHOD.md](./METHOD.md). Official grid (vendored):
 [levels/aidd.md](./levels/aidd.md).
 
 ```
-glob → read → infer (facts) → retry misses → jq (law) → nika:decide (publish?) → infer (story)
+glob → read → infer (facts) → retry → fallback
+     → jq (law) → nika:decide (publish?) → infer (story)
+     → nika:hash + nika:validate + 3 charts + JURY.md
 ```
 
 Contradiction or two fighting facts → White, never a guessed belt.
+
+The model never writes a belt. The receipt (`out/receipt.json`) is a
+blake3 of the roster, stamped with `nika:date` + `nika:uuid`.
 
 ## Author
 

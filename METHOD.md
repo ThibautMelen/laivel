@@ -56,10 +56,22 @@ C'est le critere « assume quand il n'est pas sur », en contrat.
 Le modele recit le geste que jq a deja choisi. Il ne peut pas changer
 le niveau (le champ n'est plus dans son schema).
 
-## 5. Equipe
+## 5. Equipe + recu
 
-Un verdict markdown par profil, `out/team.md`, `out/team.json` (meme
-contenu, machine), `out/team.svg`.
+Un verdict markdown par profil, puis uniquement des builtins Nika:
+
+- `out/team.md` · `out/team.json` · `out/team.yaml` (`nika:convert`)
+- `out/team.svg` barres · `out/belts.svg` effectif · `out/axes.svg` heatmap
+- `out/receipt.json` · `nika:date` + `nika:uuid` + `nika:hash` blake3
+- `nika:validate` contre `decisions/team.schema.json` (assert)
+- `nika:emit` `laivel.roster` dans la trace
+- `out/JURY.md` une page pour le jury (jq, pas le modele)
+- self-test: `nika:json_diff` → `out/self-test.patch.json`
+
+jq corrige deux lectures recurrentes avant de scorer: ChatGPT colle
+sans fichier = `prompts` (pas `none`) · hook CI + plus de diff =
+`never` (pas `key_steps`). Si l'extract rate, fallback unknown →
+White + defer. Pas de cran invente.
 
 `held/` est le e2e vendredi: notes de 1:1, zero enum.
 

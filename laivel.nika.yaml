@@ -6,7 +6,8 @@
 # (all axes or nothing). nika:decide says whether the verdict is
 # publishable (recommend) or must stay uncertain (defer / human_required).
 # infer then narrates the next step. It cannot change the level.
-# nika:chart draws the team. Zero helper scripts.
+# nika:chart draws the team. nika:hash + nika:validate seal the roster.
+# nika:date / nika:uuid stamp the receipt. Zero helper scripts.
 #
 # Run ·
 #   nika run laivel.nika.yaml
@@ -17,6 +18,10 @@
 nika: laivel-assess
 
 model: openai/gpt-5-mini
+
+run:
+  clock: system
+  entropy: ambient
 
 inputs:
   profiles:
@@ -43,7 +48,7 @@ inputs:
 const:
   bundle: "./decisions/aidd-publish.bundle.json"
   rubric: "./levels/aidd.yaml"
-  observed_at: "2026-08-19T12:00:00Z"
+  team_schema: "./decisions/team.schema.json"
 
 permits:
   exec: false
@@ -56,6 +61,13 @@ permits:
     - "nika:assert"
     - "nika:chart"
     - "nika:log"
+    - "nika:date"
+    - "nika:uuid"
+    - "nika:hash"
+    - "nika:validate"
+    - "nika:convert"
+    - "nika:emit"
+    - "nika:json_diff"
   fs:
     read:
       - "./fixtures/**"
@@ -67,12 +79,28 @@ permits:
       - "./out/**"
 
 tasks:
+  now:
+    invoke:
+      tool: "nika:date"
+      args:
+        op: now
+        tz: UTC
+
+  run_id:
+    invoke:
+      tool: "nika:uuid"
+      args:
+        version: v7
+
   hello:
+    with:
+      id: ${{ tasks.run_id.output }}
+      t: ${{ tasks.now.output }}
     invoke:
       tool: "nika:log"
       args:
         level: info
-        message: "laivel · extract facts · jq applies the law · decide publishes or abstains"
+        message: "laivel · ${{ with.id }} · ${{ with.t }} · extract · jq law · decide"
 
   files:
     invoke:
@@ -120,6 +148,7 @@ tasks:
               text: .[1],
               stem: (.[0] | split("/") | last | rtrimstr(".md"))
             })
+          | map(select(.stem != "README" and .stem != "expected"))
 
   signals:
     with:
@@ -155,18 +184,23 @@ tasks:
         throughput: none | one | multi_pr_day
 
         Traduction (recit -> enum), ne pas inventer:
-        - aucune IA, aucun fichier de contexte → none / none / 0
-        - prompts colles, petit endpoint, beaucoup de commits correctifs → S / prompts / after_majority / 1
+        - aucune IA, jamais ouvert un chat → harness none
+        - colle ChatGPT / un prompt, recolle dans l'IDE, pas de fichier de contexte → harness prompts (PAS none)
+        - memoire projet / AGENTS.md, pas d'agents versionnes → harness context
+        - rules+agents versionnes, pas de boucle CI → harness context_behavior
+        - hook qui relance tant que la CI est rouge → harness context_behavior_loops
+        - prompts colles, petit endpoint, commits correctifs, relit tout → S / prompts / after_majority / 1
         - memoire projet, feature d'un module, relit une partie → M / context / after_part / 1
-        - rules+agents versionnes, feature multi-etapes, seulement cadrage/revue → L / context_behavior / key_steps / 1
-        - un seul chantier, jamais deux en parallele, un ticket a la fois → parallele 1
-        - zero PR, aucune livraison, n'a pas commence → parallele 0
+        - rules+agents, feature multi-etapes, cadrage/revue seulement → L / context_behavior / key_steps / 1
+        - un seul chantier, jamais deux, un ticket a la fois → parallele 1
+        - zero PR, n'a pas commence → parallele 0
         - 3 chantiers le meme jour jusqu'a la PR → parallele 3
-        - hook qui relance tant que la CI est rouge, zero commit humain → context_behavior_loops / never
-        - il lance encore chaque boucle le matin, le board ne dispatch pas → human_starts
-        - les agents prennent les tickets tout seuls, plusieurs PR par jour → agents_pick / multi_pr_day
-        - tous les commits sont les siens apres coup → pas never (after_majority ou after_part)
-        - aucun AGENTS.md, aucune rule → harness none, meme si le recit dit que l'IA a tout genere
+        - il lance encore chaque boucle le matin → autonomy human_starts
+        - les agents prennent les tickets, plusieurs PR par jour → agents_pick / multi_pr_day
+        - tous les commits sont les siens apres coup → pas never
+        - zero commit humain + ne rouvre plus le diff + hook CI → intervention never
+          (lancer la boucle le matin = autonomy human_starts, pas une intervention)
+        - il dit que l'IA a tout genere ET aucun AGENTS.md → conflict true, harness none
 
         Sans preuve: unknown (parallele -1) et l'axe dans missing.
         Deux faits incompatibles: conflict true, unknown sur les axes qui se battent.
@@ -197,9 +231,8 @@ tasks:
             type: string
             enum: [unknown, none, after_majority, after_part, key_steps, never]
           parallele:
-            anyOf:
-              - { type: integer, enum: [-1, 0, 1, 3] }
-              - { type: string, enum: ["-1", "0", "1", "3", unknown] }
+            type: integer
+            enum: [-1, 0, 1, 3]
           autonomy:
             type: string
             enum: [unknown, no, human_starts, agents_pick]
@@ -269,10 +302,6 @@ tasks:
           - harness
           - intervention
           - parallele
-          - autonomy
-          - throughput
-          - missing
-          - conflict
         properties:
           taille:
             type: string
@@ -284,9 +313,8 @@ tasks:
             type: string
             enum: [unknown, none, after_majority, after_part, key_steps, never]
           parallele:
-            anyOf:
-              - { type: integer, enum: [-1, 0, 1, 3] }
-              - { type: string, enum: ["-1", "0", "1", "3", unknown] }
+            type: string
+            enum: ["-1", "0", "1", "3", unknown]
           autonomy:
             type: string
             enum: [unknown, no, human_starts, agents_pick]
@@ -329,6 +357,22 @@ tasks:
                 end
             )
 
+  signals_filled:
+    with:
+      merged: ${{ tasks.signals_merged.output }}
+    invoke:
+      tool: "nika:jq"
+      args:
+        input: "${{ with.merged }}"
+        expression: >-
+          def blank:
+            {
+              taille: "unknown", harness: "unknown", intervention: "unknown",
+              parallele: -1, autonomy: "unknown", throughput: "unknown",
+              missing: ["all"], conflict: false, fallback: true, evidence: {}
+            };
+          map(if . == null then blank else . + { fallback: false } end)
+
   extract_stats:
     with:
       first: ${{ tasks.signals.output }}
@@ -357,8 +401,8 @@ tasks:
   scored:
     with:
       pairs: ${{ tasks.pairs.output }}
-      extracted: ${{ tasks.signals_merged.output }}
-      observed_at: ${{ const.observed_at }}
+      extracted: ${{ tasks.signals_filled.output }}
+      observed_at: ${{ tasks.now.output }}
     invoke:
       tool: "nika:jq"
       args:
@@ -383,6 +427,17 @@ tasks:
             def norm($raw):
               (if $raw == null then blank else $raw end) as $s
               | $s + { parallele: para($s.parallele), conflict: ($s.conflict == true) };
+            def correct($s; $text):
+              ($text // "") as $t
+              | ($s
+                 | if (.harness == "none")
+                      and ($t | test("ChatGPT|colle|recolle"; "i"))
+                   then .harness = "prompts" else . end
+                 | if (.harness == "context_behavior_loops")
+                      and (.intervention != "never")
+                      and ($t | test("ne rouvre plus|zero commit|aucun commit|pas de sa main"; "i"))
+                   then .intervention = "never" else . end
+                );
             def contra($s):
               ($s.conflict == true)
               or (
@@ -478,6 +533,12 @@ tasks:
                   confidence: (if (contra($s) or $unk >= 2) then "low" elif $unk == 1 then "medium" else "high" end),
                   contradiction: contra($s),
                   unknown_count: $unk,
+                  axes: {
+                    taille: ($rt // 0),
+                    harness: ($rh // 0),
+                    intervention: ($ri // 0),
+                    parallele: ($rp // 0)
+                  },
                   gap: (
                     if contra($s) then "trancher les faits incompatibles avant de noter"
                     elif $level == "gold" then "deja Gold"
@@ -495,10 +556,11 @@ tasks:
             | map(
                 . as $i
                 | $pairs[$i] as $p
-                | norm($ex[$i]) as $s
+                | correct(norm($ex[$i]); $p.text) as $s
                 | score($s) as $sc
                 | $sc + {
-                    extract_ok: ($ex[$i] != null),
+                    extract_ok: ($s.fallback != true),
+                    fallback: ($s.fallback == true),
                     path: $p.path,
                     stem: $p.stem,
                     snapshot: {
@@ -613,6 +675,8 @@ tasks:
                   stem: $row.stem,
                   path: $row.path,
                   extract_ok: ($row.extract_ok != false),
+                  fallback: ($row.fallback == true),
+                  axes: ($row.axes // {}),
                   level: $row.level,
                   rank: $row.rank,
                   next: $row.next,
@@ -685,6 +749,7 @@ tasks:
           (map("- **" + .stem + "** · " + .level
                + " · " + .confidence
                + " · publish " + .publish
+               + (if .fallback == true then " · fallback" else "" end)
                + (if .extract_ok == false then " · extract miss" else "" end)
           ) | join("\n")) as $rows
           | "# Equipe\n\n"
@@ -711,8 +776,8 @@ tasks:
         input: "${{ with.cards }}"
         expression: >-
           map({
-            stem, extract_ok, level, rank, next, blocking_axis,
-            confidence, contradiction, publish, why, next_move
+            stem, extract_ok, fallback, level, rank, next, blocking_axis,
+            confidence, contradiction, publish, why, next_move, axes
           })
 
   write_json:
@@ -722,6 +787,231 @@ tasks:
       tool: "nika:write"
       args:
         path: "./out/team.json"
+        content: "${{ with.body }}"
+        create_dirs: true
+
+  as_yaml:
+    with:
+      body: ${{ tasks.roster_json.output }}
+    invoke:
+      tool: "nika:convert"
+      args:
+        input: "${{ with.body }}"
+        from: json
+        to: yaml
+
+  write_yaml:
+    with:
+      body: ${{ tasks.as_yaml.output }}
+    invoke:
+      tool: "nika:write"
+      args:
+        path: "./out/team.yaml"
+        content: "${{ with.body }}"
+        create_dirs: true
+
+  digest_text:
+    with:
+      body: ${{ tasks.roster_json.output }}
+    invoke:
+      tool: "nika:jq"
+      args:
+        input: "${{ with.body }}"
+        expression: "tojson"
+
+  digest:
+    with:
+      text: ${{ tasks.digest_text.output }}
+    invoke:
+      tool: "nika:hash"
+      args:
+        content: "${{ with.text }}"
+        algo: blake3
+
+  schema_file:
+    invoke:
+      tool: "nika:read"
+      args:
+        path: "${{ const.team_schema }}"
+
+  schema_obj:
+    with:
+      raw: ${{ tasks.schema_file.output }}
+    invoke:
+      tool: "nika:jq"
+      args:
+        input: "${{ with.raw }}"
+        expression: "if type == \"string\" then fromjson else . end"
+
+  certify_shape:
+    with:
+      body: ${{ tasks.roster_json.output }}
+      schema: ${{ tasks.schema_obj.output }}
+    invoke:
+      tool: "nika:validate"
+      args:
+        data: "${{ with.body }}"
+        schema: "${{ with.schema }}"
+
+  certify:
+    with:
+      report: ${{ tasks.certify_shape.output }}
+    invoke:
+      tool: "nika:assert"
+      args:
+        condition: ${{ with.report.valid }}
+        message: "team.json failed nika:validate"
+
+  heat_rows:
+    with:
+      cards: ${{ tasks.cards.output }}
+    invoke:
+      tool: "nika:jq"
+      args:
+        input: "${{ with.cards }}"
+        expression: >-
+          map(. as $c
+              | ($c.axes // {}) as $a
+              | [
+                  { profile: $c.stem, axis: "taille", rank: ($a.taille // 0) },
+                  { profile: $c.stem, axis: "harness", rank: ($a.harness // 0) },
+                  { profile: $c.stem, axis: "intervention", rank: ($a.intervention // 0) },
+                  { profile: $c.stem, axis: "parallele", rank: ($a.parallele // 0) }
+                ])
+          | add
+
+  heat:
+    with:
+      rows: ${{ tasks.heat_rows.output }}
+    invoke:
+      tool: "nika:chart"
+      args:
+        data: "${{ with.rows }}"
+        semantics: { profile: category, axis: category, rank: count }
+        chart:
+          type: heatmap
+          x: profile
+          y: axis
+          color: rank
+          title: "Axes AIDD (0 none · 4 max)"
+        out: "./out/axes.svg"
+
+  belt_rows:
+    with:
+      cards: ${{ tasks.cards.output }}
+    invoke:
+      tool: "nika:jq"
+      args:
+        input: "${{ with.cards }}"
+        expression: >-
+          group_by(.level)
+          | map({ level: .[0].level, n: length, rank: (.[0].rank) })
+          | sort_by(.rank)
+
+  belts:
+    with:
+      rows: ${{ tasks.belt_rows.output }}
+    invoke:
+      tool: "nika:chart"
+      args:
+        data: "${{ with.rows }}"
+        semantics: { level: category, n: count }
+        chart: { type: bar, x: level, y: n, title: "Effectif par ceinture" }
+        out: "./out/belts.svg"
+
+  stamp:
+    with:
+      cards: ${{ tasks.cards.output }}
+      stats: ${{ tasks.extract_stats.output }}
+      digest: ${{ tasks.digest.output }}
+      id: ${{ tasks.run_id.output }}
+      t: ${{ tasks.now.output }}
+      valid: ${{ tasks.certify_shape.output }}
+    invoke:
+      tool: "nika:jq"
+      args:
+        input:
+          - "${{ with.cards }}"
+          - "${{ with.stats }}"
+          - "${{ with.digest }}"
+          - "${{ with.id }}"
+          - "${{ with.t }}"
+          - "${{ with.valid }}"
+        expression: >-
+          .[0] as $c
+          | {
+              run_id: .[3],
+              observed_at: .[4],
+              digest_blake3: .[2],
+              extract: .[1],
+              valid: (.[5].valid // false),
+              n: ($c | length),
+              recommended: ([$c[] | select(.publish == "recommend")] | length),
+              deferred: ([$c[] | select(.publish != "recommend")] | length),
+              fallbacks: ([$c[] | select(.fallback == true)] | length),
+              law: "all-axes-or-nothing",
+              engine: "nika",
+              model_writes_level: false
+            }
+
+  write_receipt:
+    with:
+      body: ${{ tasks.stamp.output }}
+    invoke:
+      tool: "nika:write"
+      args:
+        path: "./out/receipt.json"
+        content: "${{ with.body }}"
+        create_dirs: true
+
+  emit_roster:
+    with:
+      receipt: ${{ tasks.stamp.output }}
+    invoke:
+      tool: "nika:emit"
+      args:
+        event_type: "laivel.roster"
+        payload: "${{ with.receipt }}"
+
+  jury:
+    with:
+      cards: ${{ tasks.cards.output }}
+      receipt: ${{ tasks.stamp.output }}
+    invoke:
+      tool: "nika:jq"
+      args:
+        input: ["${{ with.cards }}", "${{ with.receipt }}"]
+        expression: >-
+          .[0] as $c | .[1] as $r
+          | ($c | map("- **" + .stem + "** · " + (.level | ascii_upcase)
+                 + " · " + .publish
+                 + " · bloque " + ((.blocking_axis // "rien") | tostring)
+            ) | join("\n")) as $rows
+          | "# Laivel · une page pour le jury\n\n"
+            + "Un workflow Nika. Zero script. Le modele extrait des faits. "
+            + "**jq** applique la loi *tous les axes ou rien*. "
+            + "**nika:decide** publie ou s'abstient. "
+            + "Le modele n'ecrit jamais le niveau.\n\n"
+            + "- run `" + ($r.run_id | tostring) + "`\n"
+            + "- " + ($r.observed_at | tostring) + "\n"
+            + "- blake3 `" + ($r.digest_blake3 | tostring) + "`\n"
+            + "- " + ($r.n | tostring) + " profils · "
+            + ($r.recommended | tostring) + " publies · "
+            + ($r.deferred | tostring) + " deferres\n"
+            + "- extract: " + ($r.extract | tostring) + "\n\n"
+            + "## Equipe\n\n" + $rows + "\n\n"
+            + "## Pourquoi pas 0-100\n\n"
+            + "Un harness Gold avec des PR taille S est Red. "
+            + "La moyenne ment. Le min de la grille dit la verite.\n\n"
+            + "Relancer: `nika run laivel.nika.yaml --max-cost-usd 3`\n"
+
+  write_jury:
+    with:
+      body: ${{ tasks.jury.output }}
+    invoke:
+      tool: "nika:write"
+      args:
+        path: "./out/JURY.md"
         content: "${{ with.body }}"
         create_dirs: true
 
@@ -758,6 +1048,44 @@ tasks:
               )
             }
 
+  maps:
+    with:
+      cards: ${{ tasks.cards.output }}
+      expected: ${{ tasks.expected.output }}
+    when: ${{ inputs.self_test == true }}
+    invoke:
+      tool: "nika:jq"
+      args:
+        input: ["${{ with.cards }}", "${{ with.expected }}"]
+        expression: >-
+          .[0] as $cards
+          | (.[1] | if type == "string" then fromjson else . end) as $exp
+          | {
+              got: ($cards | map({ key: .stem, value: .level }) | from_entries),
+              exp: $exp
+            }
+
+  delta:
+    with:
+      maps: ${{ tasks.maps.output }}
+    when: ${{ inputs.self_test == true }}
+    invoke:
+      tool: "nika:json_diff"
+      args:
+        before: "${{ with.maps.exp }}"
+        after: "${{ with.maps.got }}"
+
+  write_delta:
+    with:
+      body: ${{ tasks.delta.output }}
+    when: ${{ inputs.self_test == true }}
+    invoke:
+      tool: "nika:write"
+      args:
+        path: "./out/self-test.patch.json"
+        content: "${{ with.body }}"
+        create_dirs: true
+
   selfcheck:
     with:
       ok: ${{ tasks.compare.output.ok }}
@@ -775,3 +1103,9 @@ outputs:
     description: "Per-profile verdicts · level from jq, publish from nika:decide"
   team:
     value: ${{ tasks.roster.output }}
+  receipt:
+    value: ${{ tasks.stamp.output }}
+    description: "blake3 receipt · run id · publish counts"
+  jury:
+    value: ${{ tasks.jury.output }}
+    description: "One-page jury brief"
