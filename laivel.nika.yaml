@@ -9,6 +9,11 @@
 # nika:chart draws the team. nika:hash + nika:validate seal the roster.
 # nika:date / nika:uuid stamp the receipt. Zero helper scripts.
 #
+# Glob pins notes: exclude **/README.md (the glob-readme seam). jq also
+# drops stem README/expected. nika:assert size(cards) == size(glob).
+# nika:log prints decide actions + belt counts. The model never writes
+# the belt.
+#
 # Run ·
 #   nika run laivel.nika.yaml
 #   nika run laivel.nika.yaml --var profiles=./profiles/*.md --max-cost-usd 3
@@ -107,6 +112,7 @@ tasks:
       tool: "nika:glob"
       args:
         pattern: "${{ inputs.profiles }}"
+        exclude: "**/README.md"
     lift:
       - law: taint
         from: inputs.profiles
@@ -700,11 +706,51 @@ tasks:
                 }
             )
 
+  # Fail if a globbed file never became a card (read drop, README leak).
+  # CEL size() · the model does not get a vote.
+  parity:
+    with:
+      cards: ${{ tasks.cards.output }}
+      files: ${{ tasks.files.output }}
+    invoke:
+      tool: "nika:assert"
+      args:
+        condition: ${{ size(with.cards) == size(with.files) }}
+        message: "cards ${{ size(with.cards) }} vs glob ${{ size(with.files) }}"
+
+  census:
+    with:
+      cards: ${{ tasks.cards.output }}
+    invoke:
+      tool: "nika:jq"
+      args:
+        input: "${{ with.cards }}"
+        expression: >-
+          [
+            (group_by(.publish)
+             | map(.[0].publish + "=" + (length | tostring))
+             | join(" ")),
+            (group_by(.level)
+             | map(.[0].level + "=" + (length | tostring))
+             | join(" "))
+          ]
+          | "decide " + .[0] + " · belts " + .[1]
+
+  log_decide:
+    with:
+      msg: ${{ tasks.census.output }}
+    invoke:
+      tool: "nika:log"
+      args:
+        level: info
+        message: "${{ with.msg }}"
+
   write_each:
     with:
       cards: ${{ tasks.cards.output }}
       path: ${{ item.out_path }}
       body: ${{ item.markdown }}
+      gate: ${{ tasks.parity.output }}
     for_each:
       items: ${{ with.cards }}
       max_parallel: 8

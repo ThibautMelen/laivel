@@ -63,8 +63,9 @@ Zero-key rehearsal: `--model mock/echo`.
 ## How it works
 
 ```
-glob → read → infer (facts) → retry → fallback
+glob (exclude README) → read → infer (facts) → retry → fallback
      → jq (law) → nika:decide (publish?) → infer (story)
+     → assert cards==glob → log decide+belts
      → nika:hash + nika:validate + 3 charts + JURY.md
 ```
 

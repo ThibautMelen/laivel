@@ -56,12 +56,14 @@ C'est le critere « assume quand il n'est pas sur », en contrat.
 Le modele recit le geste que jq a deja choisi. Il ne peut pas changer
 le niveau (le champ n'est plus dans son schema).
 
-Ensuite, uniquement des builtins Nika: verdicts, roster
-(`nika:convert`), 3 charts, recu (`nika:date` + `nika:uuid` +
-`nika:hash` blake3), `nika:validate` contre
-`decisions/team.schema.json`, `nika:emit` `laivel.roster`,
-`out/JURY.md` (jq, pas le modele). Self-test: `nika:json_diff` →
-`out/self-test.patch.json`. Extract rate → unknown → White + defer.
+Ensuite, uniquement des builtins Nika: glob `exclude: "**/README.md"`,
+verdicts, roster (`nika:convert`), 3 charts, recu (`nika:date` +
+`nika:uuid` + `nika:hash` blake3), `nika:validate` contre
+`decisions/team.schema.json`, `nika:assert` cards vs glob, `nika:log`
+des actions decide + effectifs par ceinture, `nika:emit`
+`laivel.roster`, `out/JURY.md` (jq, pas le modele). Self-test:
+`nika:json_diff` → `out/self-test.patch.json`. Extract rate → unknown
+→ White + defer.
 
 ## Held (prose, zero enum)
 
